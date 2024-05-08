@@ -1,4 +1,4 @@
-//
+//  VULKAN SDK ENABLED
 //  main.cpp
 //  LittleVulkanEngine
 //
