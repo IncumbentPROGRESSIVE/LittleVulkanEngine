@@ -1,10 +1,3 @@
-//  VULKAN SDK ENABLED
-//  main.cpp
-//  LittleVulkanEngine
-//
-//  Created by Colin Leary on 5/8/24.
-//
-
 #define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
 
