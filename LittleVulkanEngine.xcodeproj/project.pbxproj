@@ -101,9 +101,9 @@
 			isa = PBXNativeTarget;
 			buildConfigurationList = 3E83DC052BEBE857007A09F8 /* Build configuration list for PBXNativeTarget "LittleVulkanEngine" */;
 			buildPhases = (
-				3E83DBFA2BEBE857007A09F8 /* Sources */,
 				3E83DBFB2BEBE857007A09F8 /* Frameworks */,
 				3E83DBFC2BEBE857007A09F8 /* CopyFiles */,
+				3E83DBFA2BEBE857007A09F8 /* Sources */,
 			);
 			buildRules = (
 			);
