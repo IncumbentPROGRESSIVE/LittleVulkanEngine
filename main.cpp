@@ -11,16 +11,17 @@
 #include <limits>
 #include <optional>
 #include <set>
+
 const uint32_t WIDTH = 800;
 const uint32_t HEIGHT = 600;
 const std::vector<const char*> validationLayers = {
     "VK_LAYER_KHRONOS_validation"
 };
+
 const std::vector<const char*> deviceExtensions = {
     VK_KHR_SWAPCHAIN_EXTENSION_NAME,
     "VK_KHR_portability_subset"
 };
-
 
 #ifdef NDEBUG
 const bool enableValidationLayers = false;
@@ -50,12 +51,14 @@ VkResult CreateDebugUtilsMessengerEXT(VkInstance instance, const VkDebugUtilsMes
         return VK_ERROR_EXTENSION_NOT_PRESENT;
     }
 }
+
 void DestroyDebugUtilsMessengerEXT(VkInstance instance, VkDebugUtilsMessengerEXT debugMessenger, const VkAllocationCallbacks* pAllocator) {
     auto func = (PFN_vkDestroyDebugUtilsMessengerEXT) vkGetInstanceProcAddr(instance, "vkDestroyDebugUtilsMessengerEXT");
     if (func != nullptr) {
         func(instance, debugMessenger, pAllocator);
     }
 }
+
 struct QueueFamilyIndices {
     std::optional<uint32_t> graphicsFamily;
     std::optional<uint32_t> presentFamily;
@@ -63,11 +66,13 @@ struct QueueFamilyIndices {
         return graphicsFamily.has_value() && presentFamily.has_value();
     }
 };
+
 struct SwapChainSupportDetails {
     VkSurfaceCapabilitiesKHR capabilities;
     std::vector<VkSurfaceFormatKHR> formats;
     std::vector<VkPresentModeKHR> presentModes;
 };
+
 class HelloTriangleApplication {
     
     VkSemaphore imageAvailableSemaphore;
@@ -122,7 +127,6 @@ class HelloTriangleApplication {
         }
     }
 
-    
     VkShaderModule createShaderModule(const std::vector<char>& code) {
         VkShaderModuleCreateInfo createInfo{};
         createInfo.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
@@ -137,7 +141,6 @@ class HelloTriangleApplication {
         return shaderModule;
     }
 
-    
     std::vector<char> readFile(const std::string& filename) {
         std::ifstream file(filename, std::ios::ate | std::ios::binary);
         if (!file.is_open()) {
@@ -153,12 +156,8 @@ class HelloTriangleApplication {
 
         return buffer;
     }
-
     
 public:
-    
-    
-    
     void run() {
         initWindow();
         initVulkan();
@@ -166,16 +165,12 @@ public:
         cleanup();
     }
 private:
-    
     VkCommandPool commandPool;
     std::vector<VkCommandBuffer> commandBuffers;
-
-    
     std::vector<VkFramebuffer> swapChainFramebuffers;
     
     void createCommandBuffers() {
         commandBuffers.resize(swapChainFramebuffers.size());
-
         VkCommandBufferAllocateInfo allocInfo{};
         allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
         allocInfo.commandPool = commandPool;
@@ -214,7 +209,6 @@ private:
             }
         }
     }
-
     
     void createCommandPool() {
         QueueFamilyIndices queueFamilyIndices = findQueueFamilies(physicalDevice);
@@ -227,7 +221,6 @@ private:
             throw std::runtime_error("failed to create command pool!");
         }
     }
-
 
     void createFramebuffers() {
         swapChainFramebuffers.resize(swapChainImageViews.size());
@@ -250,9 +243,7 @@ private:
         }
     }
 
-    
     VkRenderPass renderPass;
-
     GLFWwindow* window;
     VkInstance instance;
     VkDebugUtilsMessengerEXT debugMessenger;
@@ -273,6 +264,7 @@ private:
         glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
         window = glfwCreateWindow(WIDTH, HEIGHT, "Vulkan", nullptr, nullptr);
     }
+    
     void initVulkan() {
         createInstance();
         setupDebugMessenger();
@@ -281,14 +273,13 @@ private:
         createLogicalDevice();
         createSwapChain();
         createImageViews();
-        createRenderPass();  // 🔹 Add this line
-        createFramebuffers();  // 🔹 Add this after createRenderPass();
-        createCommandPool();  // 🔹 Add this after createFramebuffers();
-        createCommandBuffers();  // 🔹 Add this after createCommandPool();
-        createSyncObjects();  // 🔹 Add this line to initialize semaphores
+        createRenderPass();
+        createFramebuffers();
+        createCommandPool();
+        createCommandBuffers();
+        createSyncObjects();
         createGraphicsPipeline();
     }
-
     
     void createRenderPass() {
         VkAttachmentDescription colorAttachment{};
@@ -322,7 +313,6 @@ private:
         }
     }
 
-    
     void createGraphicsPipeline() {
         auto vertShaderCode = readFile("/Users/colinleary/Desktop/VulkanSDK/LittleVulkanEngine/shaders/triangle.vert.spv");
         auto fragShaderCode = readFile("/Users/colinleary/Desktop/VulkanSDK/LittleVulkanEngine/shaders/triangle.frag.spv");
@@ -360,7 +350,7 @@ private:
     }
 
     void cleanup() {
-        vkDestroyCommandPool(device, commandPool, nullptr); // 🔹 Destroy command pool
+        vkDestroyCommandPool(device, commandPool, nullptr);
 
         for (auto framebuffer : swapChainFramebuffers) {
             vkDestroyFramebuffer(device, framebuffer, nullptr);
@@ -418,6 +408,7 @@ private:
             throw std::runtime_error("failed to create instance!");
         }
     }
+    
     void populateDebugMessengerCreateInfo(VkDebugUtilsMessengerCreateInfoEXT& createInfo) {
         createInfo = {};
         createInfo.sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT;
@@ -425,6 +416,7 @@ private:
         createInfo.messageType = VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT;
         createInfo.pfnUserCallback = debugCallback;
     }
+    
     void setupDebugMessenger() {
         if (!enableValidationLayers) return;
 
@@ -444,6 +436,7 @@ private:
             throw std::runtime_error("failed to create window surface!");
         }
     }
+    
     void pickPhysicalDevice() {
         uint32_t deviceCount = 0;
         vkEnumeratePhysicalDevices(instance, &deviceCount, nullptr);
@@ -467,7 +460,6 @@ private:
             throw std::runtime_error("ERROR: Failed to find a suitable GPU!");
         }
     }
-
 
     void createLogicalDevice() {
         QueueFamilyIndices indices = findQueueFamilies(physicalDevice);
@@ -512,7 +504,6 @@ private:
         }
     }
 
-
     void createSwapChain() {
         SwapChainSupportDetails swapChainSupport = querySwapChainSupport(physicalDevice);
         VkSurfaceFormatKHR surfaceFormat = chooseSwapSurfaceFormat(swapChainSupport.formats);
@@ -554,6 +545,7 @@ private:
         swapChainImageFormat = surfaceFormat.format;
         swapChainExtent = extent;
     }
+    
     void createImageViews() {
         swapChainImageViews.resize(swapChainImages.size());
         for (size_t i = 0; i < swapChainImages.size(); i++) {
@@ -671,7 +663,6 @@ private:
         return requiredExtensions.empty();
     }
 
-
     QueueFamilyIndices findQueueFamilies(VkPhysicalDevice device) {
         QueueFamilyIndices indices;
         uint32_t queueFamilyCount = 0;
@@ -714,6 +705,7 @@ private:
         }
         return extensions;
     }
+    
     bool checkValidationLayerSupport() {
         uint32_t layerCount;
         vkEnumerateInstanceLayerProperties(&layerCount, nullptr);
@@ -738,6 +730,7 @@ private:
         return VK_FALSE;
     }
 };
+
 int main() {
     HelloTriangleApplication app;
     try {
