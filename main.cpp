@@ -12,6 +12,20 @@
 #include <optional>
 #include <set>
 
+#include <iostream>
+#include <unistd.h>
+#include <limits.h>
+
+void printWorkingDirectory() {
+    char cwd[PATH_MAX];
+    if (getcwd(cwd, sizeof(cwd)) != nullptr) {
+        std::cout << "Current Working Directory: " << cwd << std::endl;
+    } else {
+        perror("getcwd() error");
+    }
+}
+
+
 const uint32_t WIDTH = 800;
 const uint32_t HEIGHT = 600;
 const std::vector<const char*> validationLayers = {
@@ -134,20 +148,27 @@ class HelloTriangleApplication {
         createInfo.pCode = reinterpret_cast<const uint32_t*>(code.data());
 
         VkShaderModule shaderModule;
-        if (vkCreateShaderModule(device, &createInfo, nullptr, &shaderModule) != VK_SUCCESS) {
+        VkResult result = vkCreateShaderModule(device, &createInfo, nullptr, &shaderModule);
+        if (result != VK_SUCCESS) {
+            std::cerr << "❌ ERROR: Failed to create shader module! Error Code: " << result << std::endl;
             throw std::runtime_error("failed to create shader module!");
         }
 
+        std::cout << "✅ Shader module created successfully!" << std::endl;
         return shaderModule;
     }
 
     std::vector<char> readFile(const std::string& filename) {
         std::ifstream file(filename, std::ios::ate | std::ios::binary);
+
+        // 🔹 Debug: Print the full file path
+        std::cout << "Attempting to open file: " << filename << std::endl;
+
         if (!file.is_open()) {
-            throw std::runtime_error("failed to open file!");
+            throw std::runtime_error("failed to open file: " + filename);
         }
 
-        size_t fileSize = (size_t) file.tellg();
+        size_t fileSize = (size_t)file.tellg();
         std::vector<char> buffer(fileSize);
 
         file.seekg(0);
@@ -156,6 +177,7 @@ class HelloTriangleApplication {
 
         return buffer;
     }
+
     
 public:
     void run() {
@@ -165,12 +187,15 @@ public:
         cleanup();
     }
 private:
+    VkPipeline graphicsPipeline;
+    VkPipelineLayout pipelineLayout;
     VkCommandPool commandPool;
     std::vector<VkCommandBuffer> commandBuffers;
     std::vector<VkFramebuffer> swapChainFramebuffers;
     
     void createCommandBuffers() {
         commandBuffers.resize(swapChainFramebuffers.size());
+
         VkCommandBufferAllocateInfo allocInfo{};
         allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
         allocInfo.commandPool = commandPool;
@@ -197,11 +222,18 @@ private:
             renderPassInfo.renderArea.offset = {0, 0};
             renderPassInfo.renderArea.extent = swapChainExtent;
 
-            VkClearValue clearColor = {{{0.0f, 0.0f, 0.0f, 1.0f}}};
+            VkClearValue clearColor = {{{0.0f, 0.0f, 0.0f, 1.0f}}};  // Clear to black
             renderPassInfo.clearValueCount = 1;
             renderPassInfo.pClearValues = &clearColor;
 
             vkCmdBeginRenderPass(commandBuffers[i], &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
+            
+            if (graphicsPipeline == VK_NULL_HANDLE) {
+                throw std::runtime_error("ERROR: graphicsPipeline is NULL before binding!");
+            }
+
+            vkCmdBindPipeline(commandBuffers[i], VK_PIPELINE_BIND_POINT_GRAPHICS, graphicsPipeline);
+
             vkCmdEndRenderPass(commandBuffers[i]);
 
             if (vkEndCommandBuffer(commandBuffers[i]) != VK_SUCCESS) {
@@ -209,7 +241,7 @@ private:
             }
         }
     }
-    
+
     void createCommandPool() {
         QueueFamilyIndices queueFamilyIndices = findQueueFamilies(physicalDevice);
 
@@ -274,13 +306,14 @@ private:
         createSwapChain();
         createImageViews();
         createRenderPass();
+        createGraphicsPipeline();  // ✅ Ensure this is BEFORE command buffers!
         createFramebuffers();
         createCommandPool();
         createCommandBuffers();
         createSyncObjects();
-        createGraphicsPipeline();
     }
-    
+
+
     void createRenderPass() {
         VkAttachmentDescription colorAttachment{};
         colorAttachment.format = swapChainImageFormat;
@@ -308,21 +341,61 @@ private:
         renderPassInfo.subpassCount = 1;
         renderPassInfo.pSubpasses = &subpass;
 
-        if (vkCreateRenderPass(device, &renderPassInfo, nullptr, &renderPass) != VK_SUCCESS) {
-            throw std::runtime_error("failed to create render pass!");
+        VkResult renderPassResult = vkCreateRenderPass(device, &renderPassInfo, nullptr, &renderPass);
+        if (renderPassResult != VK_SUCCESS) {
+            throw std::runtime_error("ERROR: Failed to create render pass!");
+        }
+
+        // **Debug Check**
+        if (renderPass == VK_NULL_HANDLE) {
+            throw std::runtime_error("ERROR: renderPass is NULL after creation!");
+        } else {
+            std::cout << "✅ Render Pass Created Successfully: " << renderPass << std::endl;
         }
     }
 
+    
+    void createPipelineLayout() {
+        VkPipelineLayoutCreateInfo pipelineLayoutInfo{};
+        pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+        pipelineLayoutInfo.setLayoutCount = 0; // No descriptor sets
+        pipelineLayoutInfo.pSetLayouts = nullptr;
+        pipelineLayoutInfo.pushConstantRangeCount = 0;
+        pipelineLayoutInfo.pPushConstantRanges = nullptr;
+
+        VkResult pipelineLayoutResult = vkCreatePipelineLayout(device, &pipelineLayoutInfo, nullptr, &pipelineLayout);
+        if (pipelineLayoutResult != VK_SUCCESS) {
+            throw std::runtime_error("ERROR: Failed to create pipeline layout!");
+        }
+
+        // **Debug Check**
+        if (pipelineLayout == VK_NULL_HANDLE) {
+            throw std::runtime_error("ERROR: pipelineLayout is NULL after creation!");
+        } else {
+            std::cout << "✅ Pipeline Layout Created Successfully: " << pipelineLayout << std::endl;
+        }
+    }
+
+    
     void createGraphicsPipeline() {
-        auto vertShaderCode = readFile("/Users/colinleary/Desktop/VulkanSDK/LittleVulkanEngine/shaders/triangle.vert.spv");
-        auto fragShaderCode = readFile("/Users/colinleary/Desktop/VulkanSDK/LittleVulkanEngine/shaders/triangle.frag.spv");
+        // Load Shader Files
+        std::string vertShaderPath = "/Users/colinleary/Desktop/VulkanSDK/LittleVulkanEngine/shaders/triangle.vert.spv";
+        std::string fragShaderPath = "/Users/colinleary/Desktop/VulkanSDK/LittleVulkanEngine/shaders/triangle.frag.spv";
+
+        std::cout << "Attempting to open shader files..." << std::endl;
+        auto vertShaderCode = readFile(vertShaderPath);
+        auto fragShaderCode = readFile(fragShaderPath);
 
         std::cout << "Vertex Shader Size: " << vertShaderCode.size() << " bytes" << std::endl;
         std::cout << "Fragment Shader Size: " << fragShaderCode.size() << " bytes" << std::endl;
 
+        // Create Shader Modules
         VkShaderModule vertShaderModule = createShaderModule(vertShaderCode);
         VkShaderModule fragShaderModule = createShaderModule(fragShaderCode);
 
+        std::cout << "✅ Shader module created successfully!" << std::endl;
+
+        // Shader Stages
         VkPipelineShaderStageCreateInfo vertShaderStageInfo{};
         vertShaderStageInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
         vertShaderStageInfo.stage = VK_SHADER_STAGE_VERTEX_BIT;
@@ -337,10 +410,94 @@ private:
 
         VkPipelineShaderStageCreateInfo shaderStages[] = {vertShaderStageInfo, fragShaderStageInfo};
 
-        // Clean up shaders after pipeline creation
-        vkDestroyShaderModule(device, fragShaderModule, nullptr);
-        vkDestroyShaderModule(device, vertShaderModule, nullptr);
+        // ✅ Vertex Input State (even if empty)
+        VkPipelineVertexInputStateCreateInfo vertexInputInfo{};
+        vertexInputInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
+        vertexInputInfo.vertexBindingDescriptionCount = 0;
+        vertexInputInfo.pVertexBindingDescriptions = nullptr;
+        vertexInputInfo.vertexAttributeDescriptionCount = 0;
+        vertexInputInfo.pVertexAttributeDescriptions = nullptr;
+
+        // ✅ Input Assembly
+        VkPipelineInputAssemblyStateCreateInfo inputAssembly{};
+        inputAssembly.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
+        inputAssembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+        inputAssembly.primitiveRestartEnable = VK_FALSE;
+
+        // ✅ Viewport State
+        VkPipelineViewportStateCreateInfo viewportState{};
+        viewportState.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
+        viewportState.viewportCount = 1;
+        viewportState.pViewports = nullptr;
+        viewportState.scissorCount = 1;
+        viewportState.pScissors = nullptr;
+
+        // ✅ Rasterization
+        VkPipelineRasterizationStateCreateInfo rasterizer{};
+        rasterizer.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
+        rasterizer.depthClampEnable = VK_FALSE;
+        rasterizer.rasterizerDiscardEnable = VK_FALSE;
+        rasterizer.polygonMode = VK_POLYGON_MODE_FILL;
+        rasterizer.lineWidth = 1.0f;
+        rasterizer.cullMode = VK_CULL_MODE_BACK_BIT;
+        rasterizer.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
+        rasterizer.depthBiasEnable = VK_FALSE;
+
+        // ✅ Multisampling
+        VkPipelineMultisampleStateCreateInfo multisampling{};
+        multisampling.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
+        multisampling.sampleShadingEnable = VK_FALSE;
+        multisampling.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+
+        // ✅ Color Blending
+        VkPipelineColorBlendAttachmentState colorBlendAttachment{};
+        colorBlendAttachment.colorWriteMask =
+            VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+        colorBlendAttachment.blendEnable = VK_FALSE;
+
+        VkPipelineColorBlendStateCreateInfo colorBlending{};
+        colorBlending.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
+        colorBlending.logicOpEnable = VK_FALSE;
+        colorBlending.attachmentCount = 1;
+        colorBlending.pAttachments = &colorBlendAttachment;
+
+        // ✅ Pipeline Layout
+        VkPipelineLayoutCreateInfo pipelineLayoutInfo{};
+        pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+        pipelineLayoutInfo.pNext = nullptr;  // Ensure no unwanted data
+
+        if (vkCreatePipelineLayout(device, &pipelineLayoutInfo, nullptr, &pipelineLayout) != VK_SUCCESS) {
+            throw std::runtime_error("❌ ERROR: Failed to create pipeline layout!");
+        }
+
+        std::cout << "✅ Pipeline Layout Created Successfully: " << pipelineLayout << std::endl;
+
+        // ✅ Graphics Pipeline
+        VkGraphicsPipelineCreateInfo pipelineInfo{};
+        pipelineInfo.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
+        pipelineInfo.pNext = nullptr;  // Ensure no unexpected Vulkan extensions
+        pipelineInfo.stageCount = 2;
+        pipelineInfo.pStages = shaderStages;
+        pipelineInfo.pVertexInputState = &vertexInputInfo;
+        pipelineInfo.pInputAssemblyState = &inputAssembly;
+        pipelineInfo.pViewportState = &viewportState;
+        pipelineInfo.pRasterizationState = &rasterizer;
+        pipelineInfo.pMultisampleState = &multisampling;
+        pipelineInfo.pColorBlendState = &colorBlending;
+        pipelineInfo.layout = pipelineLayout;
+        pipelineInfo.renderPass = renderPass;
+        pipelineInfo.subpass = 0;
+
+        VkResult result = vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &graphicsPipeline);
+
+        if (result != VK_SUCCESS) {
+            std::cerr << "❌ ERROR: vkCreateGraphicsPipelines failed with code: " << result << std::endl;
+            throw std::runtime_error("❌ ERROR: vkCreateGraphicsPipelines() failed!");
+        }
+
+        std::cout << "✅ Graphics Pipeline Created Successfully!" << std::endl;
     }
+
 
     void mainLoop() {
         while (!glfwWindowShouldClose(window)) {
@@ -732,6 +889,7 @@ private:
 };
 
 int main() {
+    printWorkingDirectory();
     HelloTriangleApplication app;
     try {
         app.run();
