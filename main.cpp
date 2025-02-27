@@ -11,10 +11,23 @@
 #include <limits>
 #include <optional>
 #include <set>
-
 #include <iostream>
 #include <unistd.h>
 #include <limits.h>
+#include <array>
+#include <glm/glm.hpp>
+
+struct Vertex {
+    glm::vec2 pos;  // Position (x, y)
+    glm::vec3 color; // Color (r, g, b)
+};
+
+const std::vector<Vertex> vertices = {
+    {{ 0.0f, -0.5f}, {1.0f, 0.0f, 0.0f}},  // Bottom Middle (Red)
+    {{ 0.5f,  0.5f}, {0.0f, 1.0f, 0.0f}},  // Top Right (Green)
+    {{-0.5f,  0.5f}, {0.0f, 0.0f, 1.0f}}   // Top Left (Blue)
+};
+
 
 void printWorkingDirectory() {
     char cwd[PATH_MAX];
@@ -24,7 +37,6 @@ void printWorkingDirectory() {
         perror("getcwd() error");
     }
 }
-
 
 const uint32_t WIDTH = 800;
 const uint32_t HEIGHT = 600;
@@ -88,6 +100,18 @@ struct SwapChainSupportDetails {
 };
 
 class HelloTriangleApplication {
+    
+    struct Vertex {
+        glm::vec2 pos;  // Position (x, y)
+        glm::vec3 color; // Color (r, g, b)
+    };
+
+    const std::vector<Vertex> vertices = {
+        {{ 0.0f, -0.5f}, {1.0f, 0.0f, 0.0f}},  // Bottom Middle (Red)
+        {{ 0.5f,  0.5f}, {0.0f, 1.0f, 0.0f}},  // Top Right (Green)
+        {{-0.5f,  0.5f}, {0.0f, 0.0f, 1.0f}}   // Top Left (Blue)
+    };
+
     
     VkSemaphore imageAvailableSemaphore;
     VkSemaphore renderFinishedSemaphore;
@@ -177,7 +201,32 @@ class HelloTriangleApplication {
 
         return buffer;
     }
+    
+    VkVertexInputBindingDescription getBindingDescription() {
+        VkVertexInputBindingDescription bindingDescription{};
+        bindingDescription.binding = 0;
+        bindingDescription.stride = sizeof(Vertex);
+        bindingDescription.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
+        return bindingDescription;
+    }
 
+    std::array<VkVertexInputAttributeDescription, 2> getAttributeDescriptions() {
+        std::array<VkVertexInputAttributeDescription, 2> attributeDescriptions{};
+        
+        // Position attribute (location = 0)
+        attributeDescriptions[0].binding = 0;
+        attributeDescriptions[0].location = 0;
+        attributeDescriptions[0].format = VK_FORMAT_R32G32_SFLOAT;  // vec2
+        attributeDescriptions[0].offset = offsetof(Vertex, pos);
+
+        // Color attribute (location = 1)
+        attributeDescriptions[1].binding = 0;
+        attributeDescriptions[1].location = 1;
+        attributeDescriptions[1].format = VK_FORMAT_R32G32B32_SFLOAT;  // vec3
+        attributeDescriptions[1].offset = offsetof(Vertex, color);
+
+        return attributeDescriptions;
+    }
     
 public:
     void run() {
@@ -187,6 +236,8 @@ public:
         cleanup();
     }
 private:
+    VkBuffer vertexBuffer;
+    VkDeviceMemory vertexBufferMemory;
     VkPipeline graphicsPipeline;
     VkPipelineLayout pipelineLayout;
     VkCommandPool commandPool;
@@ -222,7 +273,8 @@ private:
             renderPassInfo.renderArea.offset = {0, 0};
             renderPassInfo.renderArea.extent = swapChainExtent;
 
-            VkClearValue clearColor = {{{0.0f, 0.0f, 0.0f, 1.0f}}};  // Clear to black
+            VkClearValue clearColor = {{{0.678f, 0.847f, 0.902f, 1.0f}}};  // Pale Blue (Light Blue)
+
             renderPassInfo.clearValueCount = 1;
             renderPassInfo.pClearValues = &clearColor;
 
@@ -233,6 +285,13 @@ private:
             }
 
             vkCmdBindPipeline(commandBuffers[i], VK_PIPELINE_BIND_POINT_GRAPHICS, graphicsPipeline);
+            // Bind the vertex buffer
+            VkBuffer vertexBuffers[] = {vertexBuffer};
+            VkDeviceSize offsets[] = {0};
+            vkCmdBindVertexBuffers(commandBuffers[i], 0, 1, vertexBuffers, offsets);
+
+            // Draw the triangle (3 vertices)
+            vkCmdDraw(commandBuffers[i], 3, 1, 0, 0);
 
             vkCmdEndRenderPass(commandBuffers[i]);
 
@@ -248,12 +307,26 @@ private:
         VkCommandPoolCreateInfo poolInfo{};
         poolInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
         poolInfo.queueFamilyIndex = queueFamilyIndices.graphicsFamily.value();
+        poolInfo.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
 
-        if (vkCreateCommandPool(device, &poolInfo, nullptr, &commandPool) != VK_SUCCESS) {
-            throw std::runtime_error("failed to create command pool!");
+        VkResult result = vkCreateCommandPool(device, &poolInfo, nullptr, &commandPool);
+        if (result != VK_SUCCESS) {
+            throw std::runtime_error("❌ ERROR: Failed to create command pool!");
         }
     }
 
+    void createVertexBuffer() {
+        VkBufferCreateInfo bufferInfo{};
+        bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+        bufferInfo.size = sizeof(vertices[0]) * vertices.size();
+        bufferInfo.usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
+        bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+
+        if (vkCreateBuffer(device, &bufferInfo, nullptr, &vertexBuffer) != VK_SUCCESS) {
+            throw std::runtime_error("failed to create vertex buffer!");
+        }
+    }
+    
     void createFramebuffers() {
         swapChainFramebuffers.resize(swapChainImageViews.size());
 
@@ -306,13 +379,13 @@ private:
         createSwapChain();
         createImageViews();
         createRenderPass();
-        createGraphicsPipeline();  // ✅ Ensure this is BEFORE command buffers!
+        createGraphicsPipeline();
         createFramebuffers();
         createCommandPool();
+        createVertexBuffer();
         createCommandBuffers();
         createSyncObjects();
     }
-
 
     void createRenderPass() {
         VkAttachmentDescription colorAttachment{};
@@ -353,7 +426,6 @@ private:
             std::cout << "✅ Render Pass Created Successfully: " << renderPass << std::endl;
         }
     }
-
     
     void createPipelineLayout() {
         VkPipelineLayoutCreateInfo pipelineLayoutInfo{};
@@ -375,7 +447,6 @@ private:
             std::cout << "✅ Pipeline Layout Created Successfully: " << pipelineLayout << std::endl;
         }
     }
-
     
     void createGraphicsPipeline() {
         // Load Shader Files
@@ -410,13 +481,15 @@ private:
 
         VkPipelineShaderStageCreateInfo shaderStages[] = {vertShaderStageInfo, fragShaderStageInfo};
 
-        // ✅ Vertex Input State (even if empty)
+        auto bindingDescription = getBindingDescription();
+        auto attributeDescriptions = getAttributeDescriptions();
+
         VkPipelineVertexInputStateCreateInfo vertexInputInfo{};
         vertexInputInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
-        vertexInputInfo.vertexBindingDescriptionCount = 0;
-        vertexInputInfo.pVertexBindingDescriptions = nullptr;
-        vertexInputInfo.vertexAttributeDescriptionCount = 0;
-        vertexInputInfo.pVertexAttributeDescriptions = nullptr;
+        vertexInputInfo.vertexBindingDescriptionCount = 1;
+        vertexInputInfo.pVertexBindingDescriptions = &bindingDescription;
+        vertexInputInfo.vertexAttributeDescriptionCount = static_cast<uint32_t>(attributeDescriptions.size());
+        vertexInputInfo.pVertexAttributeDescriptions = attributeDescriptions.data();
 
         // ✅ Input Assembly
         VkPipelineInputAssemblyStateCreateInfo inputAssembly{};
@@ -498,7 +571,6 @@ private:
         std::cout << "✅ Graphics Pipeline Created Successfully!" << std::endl;
     }
 
-
     void mainLoop() {
         while (!glfwWindowShouldClose(window)) {
             glfwPollEvents();
@@ -507,29 +579,19 @@ private:
     }
 
     void cleanup() {
-        vkDestroyCommandPool(device, commandPool, nullptr);
+        // ✅ Ensure GPU has finished all work before destroying resources
+        vkDeviceWaitIdle(device);
+
+        if (commandPool != VK_NULL_HANDLE) {
+            vkDestroyCommandPool(device, commandPool, nullptr);
+            commandPool = VK_NULL_HANDLE;
+        }
 
         for (auto framebuffer : swapChainFramebuffers) {
             vkDestroyFramebuffer(device, framebuffer, nullptr);
         }
 
         vkDestroyRenderPass(device, renderPass, nullptr);
-
-        for (auto imageView : swapChainImageViews) {
-            vkDestroyImageView(device, imageView, nullptr);
-        }
-
-        vkDestroySwapchainKHR(device, swapChain, nullptr);
-        vkDestroyDevice(device, nullptr);
-
-        if (enableValidationLayers) {
-            DestroyDebugUtilsMessengerEXT(instance, debugMessenger, nullptr);
-        }
-
-        vkDestroySurfaceKHR(instance, surface, nullptr);
-        vkDestroyInstance(instance, nullptr);
-        glfwDestroyWindow(window);
-        glfwTerminate();
     }
 
     void createInstance() {
@@ -816,7 +878,6 @@ private:
                 std::cout << "\t" << missing << std::endl;
             }
         }
-
         return requiredExtensions.empty();
     }
 
