@@ -18,15 +18,49 @@
 #include <glm/glm.hpp>
 
 struct Vertex {
-    glm::vec2 pos;  // Position (x, y)
-    glm::vec3 color; // Color (r, g, b)
+    glm::vec2 pos;   // Position (x, y)
+    glm::vec3 color; // Tile color (r, g, b)
 };
 
-const std::vector<Vertex> vertices = {
-    {{ 0.0f, -0.5f}, {1.0f, 0.0f, 0.0f}},  // Bottom Middle (Red)
-    {{ 0.5f,  0.5f}, {0.0f, 1.0f, 0.0f}},  // Top Right (Green)
-    {{-0.5f,  0.5f}, {0.0f, 0.0f, 1.0f}}   // Top Left (Blue)
+const int ROOM_WIDTH = 10;
+const int ROOM_HEIGHT = 8;
+const float TILE_SIZE = 0.2f;
+
+const std::vector<std::vector<int>> tilemap = {
+    {1, 1, 1, 1, 1, 1, 1, 1, 1, 1},
+    {1, 0, 0, 0, 0, 0, 0, 0, 0, 1},
+    {1, 0, 0, 0, 0, 0, 0, 0, 0, 1},
+    {1, 0, 0, 0, 0, 0, 0, 0, 0, 1},
+    {1, 0, 0, 0, 0, 0, 0, 0, 0, 1},
+    {1, 0, 0, 0, 0, 0, 0, 0, 0, 1},
+    {1, 0, 0, 0, 0, 0, 0, 0, 0, 1},
+    {1, 1, 1, 1, 1, 1, 1, 1, 1, 1}
 };
+
+std::vector<Vertex> generateTilemapVertices() {
+    std::vector<Vertex> vertices;
+
+    float tileSize = 0.2f; // Adjust this size
+    for (int y = 0; y < 2; y++) {
+        for (int x = 0; x < 2; x++) {
+            float xOffset = x * tileSize;
+            float yOffset = y * tileSize;
+
+            // First triangle
+            vertices.push_back({{xOffset, yOffset}, {1.0f, 0.0f, 0.0f}});
+            vertices.push_back({{xOffset + tileSize, yOffset}, {0.0f, 1.0f, 0.0f}});
+            vertices.push_back({{xOffset, yOffset + tileSize}, {0.0f, 0.0f, 1.0f}});
+
+            // Second triangle
+            vertices.push_back({{xOffset + tileSize, yOffset}, {0.0f, 1.0f, 0.0f}});
+            vertices.push_back({{xOffset + tileSize, yOffset + tileSize}, {1.0f, 1.0f, 0.0f}});
+            vertices.push_back({{xOffset, yOffset + tileSize}, {0.0f, 0.0f, 1.0f}});
+        }
+    }
+
+    return vertices;
+}
+
 
 
 void printWorkingDirectory() {
@@ -113,12 +147,6 @@ class HelloTriangleApplication {
         }
         throw std::runtime_error("ERROR: Failed to find suitable memory type!");
     }
-
-    
-    struct Vertex {
-        glm::vec2 pos;  // Position (x, y)
-        glm::vec3 color; // Color (r, g, b)
-    };
 
     const std::vector<Vertex> vertices = {
         {{ 0.0f, -0.5f}, {1.0f, 0.0f, 0.0f}},  // Bottom Middle (Red)
@@ -335,7 +363,7 @@ private:
             VkDeviceSize offsets[] = {0};
             vkCmdBindVertexBuffers(commandBuffers[i], 0, 1, vertexBuffers, offsets);
 
-            vkCmdDraw(commandBuffers[i], static_cast<uint32_t>(vertices.size()), 1, 0, 0);
+            vkCmdDraw(commandBuffers[i], static_cast<uint32_t>(tileVertices.size()), 1, 0, 0);
 
             vkCmdEndRenderPass(commandBuffers[i]);
 
@@ -344,7 +372,6 @@ private:
             }
         }
     }
-
 
     VkRenderPass renderPass;
     GLFWwindow* window;
@@ -368,10 +395,14 @@ private:
         window = glfwCreateWindow(WIDTH, HEIGHT, "Vulkan", nullptr, nullptr);
     }
     
+    std::vector<Vertex> tileVertices; // Store tile vertices globally in the class
     void createVertexBuffer() {
+        tileVertices = generateTilemapVertices(); // ✅ Assign to class member
+        VkDeviceSize bufferSize = sizeof(tileVertices[0]) * tileVertices.size();
+
         VkBufferCreateInfo bufferInfo{};
         bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
-        bufferInfo.size = sizeof(vertices[0]) * vertices.size();
+        bufferInfo.size = bufferSize;
         bufferInfo.usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
         bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
 
@@ -396,14 +427,14 @@ private:
         vkBindBufferMemory(device, vertexBuffer, vertexBufferMemory, 0);
 
         void* data;
-        vkMapMemory(device, vertexBufferMemory, 0, bufferInfo.size, 0, &data);
-        memcpy(data, vertices.data(), (size_t) bufferInfo.size);
+        vkMapMemory(device, vertexBufferMemory, 0, bufferSize, 0, &data);
+        memcpy(data, tileVertices.data(), (size_t) bufferSize);
         vkUnmapMemory(device, vertexBufferMemory);
 
-        std::cout << "✅ Vertex Buffer Created Successfully!" << std::endl;
+        std::cout << "✅ Vertex Buffer Updated Successfully with Tilemap!" << std::endl;
     }
 
-     
+
     void initVulkan() {
         createInstance();
         setupDebugMessenger();
