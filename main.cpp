@@ -39,16 +39,15 @@ const std::vector<std::vector<int>> tilemap = {
 
 std::vector<Vertex> generateTilemapVertices() {
     std::vector<Vertex> vertices;
-
     float startX = -1.0f; // Vulkan's NDC space starts from (-1,1)
     float startY = 1.0f;  // Top-left corner
 
+    int count = 0;
     for (int y = 0; y < ROOM_HEIGHT; y++) {
         for (int x = 0; x < ROOM_WIDTH; x++) {
             float xOffset = startX + x * TILE_SIZE;
-            float yOffset = startY - y * TILE_SIZE; // Invert y since Vulkan's top is +1
+            float yOffset = startY - y * TILE_SIZE; // Vulkan's Y+ is up
 
-            // Set color based on tile type
             glm::vec3 color = (tilemap[y][x] == 1) ? glm::vec3(0.5f, 0.5f, 0.5f) : glm::vec3(0.9f, 0.9f, 0.9f);
 
             // First triangle
@@ -60,9 +59,12 @@ std::vector<Vertex> generateTilemapVertices() {
             vertices.push_back({{xOffset + TILE_SIZE, yOffset}, color});
             vertices.push_back({{xOffset + TILE_SIZE, yOffset - TILE_SIZE}, color});
             vertices.push_back({{xOffset, yOffset - TILE_SIZE}, color});
+
+            count += 6;
         }
     }
 
+    std::cout << "✅ Generated Tilemap with " << count << " vertices.\n";
     return vertices;
 }
 
@@ -255,13 +257,13 @@ class HelloTriangleApplication {
         // Position (vec2) -> location 0
         attributeDescriptions[0].binding = 0;
         attributeDescriptions[0].location = 0;
-        attributeDescriptions[0].format = VK_FORMAT_R32G32_SFLOAT;
+        attributeDescriptions[0].format = VK_FORMAT_R32G32_SFLOAT; // Matches vec2
         attributeDescriptions[0].offset = offsetof(Vertex, pos);
 
         // Color (vec3) -> location 1
         attributeDescriptions[1].binding = 0;
         attributeDescriptions[1].location = 1;
-        attributeDescriptions[1].format = VK_FORMAT_R32G32B32_SFLOAT;
+        attributeDescriptions[1].format = VK_FORMAT_R32G32B32_SFLOAT; // Matches vec3
         attributeDescriptions[1].offset = offsetof(Vertex, color);
 
         return attributeDescriptions;
@@ -358,7 +360,6 @@ private:
             VkBuffer vertexBuffers[] = {vertexBuffer};
             VkDeviceSize offsets[] = {0};
             vkCmdBindVertexBuffers(commandBuffers[i], 0, 1, vertexBuffers, offsets);
-
             vkCmdDraw(commandBuffers[i], static_cast<uint32_t>(tileVertices.size()), 1, 0, 0);
 
 
@@ -395,20 +396,16 @@ private:
     std::vector<Vertex> tileVertices; // Store tile vertices globally in the class
 
     void createVertexBuffer() {
-        // Step 1: Generate tilemap vertices
         tileVertices = generateTilemapVertices();
 
-        // Debugging: Check vertex count
         std::cout << "🟢 Tilemap Vertex Count: " << tileVertices.size() << std::endl;
         if (tileVertices.empty()) {
             throw std::runtime_error("❌ ERROR: tileVertices is empty! Tilemap generation failed.");
         }
 
-        // Step 2: Calculate Buffer Size
         VkDeviceSize bufferSize = sizeof(tileVertices[0]) * tileVertices.size();
         std::cout << "🟢 Buffer Size: " << bufferSize << " bytes" << std::endl;
 
-        // Step 3: Create Vertex Buffer
         VkBufferCreateInfo bufferInfo{};
         bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
         bufferInfo.size = bufferSize;
@@ -419,7 +416,6 @@ private:
             throw std::runtime_error("❌ ERROR: Failed to create vertex buffer!");
         }
 
-        // Step 4: Get Memory Requirements
         VkMemoryRequirements memRequirements;
         vkGetBufferMemoryRequirements(device, vertexBuffer, &memRequirements);
 
@@ -430,18 +426,16 @@ private:
                                                    VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
                                                    VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
 
-        // Step 5: Allocate Memory
         if (vkAllocateMemory(device, &allocInfo, nullptr, &vertexBufferMemory) != VK_SUCCESS) {
             throw std::runtime_error("❌ ERROR: Failed to allocate vertex buffer memory!");
         }
 
-        // Step 6: Bind Buffer Memory
         vkBindBufferMemory(device, vertexBuffer, vertexBufferMemory, 0);
 
-        // Step 7: Copy Data to GPU Memory
         void* data;
         vkMapMemory(device, vertexBufferMemory, 0, bufferSize, 0, &data);
-        std::memcpy(data, tileVertices.data(), (size_t) bufferSize);
+        memcpy(data, tileVertices.data(), (size_t) bufferSize);
+
         
         // Ensure data is flushed to GPU memory
         VkMappedMemoryRange memoryRange{};
@@ -452,7 +446,7 @@ private:
 
         vkUnmapMemory(device, vertexBufferMemory);
 
-        std::cout << "✅ Vertex Buffer Updated Successfully with Tilemap!" << std::endl;
+        std::cout << "✅ Vertex Buffer Updated Successfully with Tilemap!\n";
     }
 
     void initVulkan() {
@@ -549,6 +543,10 @@ private:
         VkShaderModule vertShaderModule = createShaderModule(vertShaderCode);
         VkShaderModule fragShaderModule = createShaderModule(fragShaderCode);
 
+        if (vertShaderModule == VK_NULL_HANDLE || fragShaderModule == VK_NULL_HANDLE) {
+            throw std::runtime_error("ERROR: Shader module creation failed!");
+        }
+
         VkPipelineShaderStageCreateInfo vertShaderStageInfo{};
         vertShaderStageInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
         vertShaderStageInfo.stage = VK_SHADER_STAGE_VERTEX_BIT;
@@ -618,7 +616,7 @@ private:
         rasterizer.rasterizerDiscardEnable = VK_FALSE;
         rasterizer.polygonMode = VK_POLYGON_MODE_FILL;
         rasterizer.lineWidth = 1.0f;
-        rasterizer.cullMode = VK_CULL_MODE_NONE;
+        rasterizer.cullMode = VK_CULL_MODE_BACK_BIT; // Enable back-face culling
         rasterizer.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
         rasterizer.depthBiasEnable = VK_FALSE;
 
@@ -644,6 +642,10 @@ private:
         // Pipeline Layout
         VkPipelineLayoutCreateInfo pipelineLayoutInfo{};
         pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+        pipelineLayoutInfo.setLayoutCount = 0; // No descriptor sets
+        pipelineLayoutInfo.pSetLayouts = nullptr;
+        pipelineLayoutInfo.pushConstantRangeCount = 0;
+        pipelineLayoutInfo.pPushConstantRanges = nullptr;
 
         if (vkCreatePipelineLayout(device, &pipelineLayoutInfo, nullptr, &pipelineLayout) != VK_SUCCESS) {
             throw std::runtime_error("ERROR: Failed to create pipeline layout!");
@@ -664,6 +666,8 @@ private:
         pipelineInfo.layout = pipelineLayout;
         pipelineInfo.renderPass = renderPass;
         pipelineInfo.subpass = 0;
+        pipelineInfo.basePipelineHandle = VK_NULL_HANDLE;
+        pipelineInfo.basePipelineIndex = -1;
 
         if (vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &graphicsPipeline) != VK_SUCCESS) {
             throw std::runtime_error("ERROR: Failed to create graphics pipeline!");
