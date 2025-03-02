@@ -40,28 +40,31 @@ const std::vector<std::vector<int>> tilemap = {
 std::vector<Vertex> generateTilemapVertices() {
     std::vector<Vertex> vertices;
 
-    float tileSize = 0.2f; // Adjust this size
-    for (int y = 0; y < 2; y++) {
-        for (int x = 0; x < 2; x++) {
-            float xOffset = x * tileSize;
-            float yOffset = y * tileSize;
+    float startX = -1.0f; // Vulkan's NDC space starts from (-1,1)
+    float startY = 1.0f;  // Top-left corner
+
+    for (int y = 0; y < ROOM_HEIGHT; y++) {
+        for (int x = 0; x < ROOM_WIDTH; x++) {
+            float xOffset = startX + x * TILE_SIZE;
+            float yOffset = startY - y * TILE_SIZE; // Invert y since Vulkan's top is +1
+
+            // Set color based on tile type
+            glm::vec3 color = (tilemap[y][x] == 1) ? glm::vec3(0.5f, 0.5f, 0.5f) : glm::vec3(0.9f, 0.9f, 0.9f);
 
             // First triangle
-            vertices.push_back({{xOffset, yOffset}, {1.0f, 0.0f, 0.0f}});
-            vertices.push_back({{xOffset + tileSize, yOffset}, {0.0f, 1.0f, 0.0f}});
-            vertices.push_back({{xOffset, yOffset + tileSize}, {0.0f, 0.0f, 1.0f}});
+            vertices.push_back({{xOffset, yOffset}, color});
+            vertices.push_back({{xOffset + TILE_SIZE, yOffset}, color});
+            vertices.push_back({{xOffset, yOffset - TILE_SIZE}, color});
 
             // Second triangle
-            vertices.push_back({{xOffset + tileSize, yOffset}, {0.0f, 1.0f, 0.0f}});
-            vertices.push_back({{xOffset + tileSize, yOffset + tileSize}, {1.0f, 1.0f, 0.0f}});
-            vertices.push_back({{xOffset, yOffset + tileSize}, {0.0f, 0.0f, 1.0f}});
+            vertices.push_back({{xOffset + TILE_SIZE, yOffset}, color});
+            vertices.push_back({{xOffset + TILE_SIZE, yOffset - TILE_SIZE}, color});
+            vertices.push_back({{xOffset, yOffset - TILE_SIZE}, color});
         }
     }
 
     return vertices;
 }
-
-
 
 void printWorkingDirectory() {
     char cwd[PATH_MAX];
@@ -147,13 +150,6 @@ class HelloTriangleApplication {
         }
         throw std::runtime_error("ERROR: Failed to find suitable memory type!");
     }
-
-    const std::vector<Vertex> vertices = {
-        {{ 0.0f, -0.5f}, {1.0f, 0.0f, 0.0f}},  // Bottom Middle (Red)
-        {{ 0.5f,  0.5f}, {0.0f, 1.0f, 0.0f}},  // Top Right (Green)
-        {{-0.5f,  0.5f}, {0.0f, 0.0f, 1.0f}}   // Top Left (Blue)
-    };
-
     
     VkSemaphore imageAvailableSemaphore;
     VkSemaphore renderFinishedSemaphore;
@@ -365,6 +361,7 @@ private:
 
             vkCmdDraw(commandBuffers[i], static_cast<uint32_t>(tileVertices.size()), 1, 0, 0);
 
+
             vkCmdEndRenderPass(commandBuffers[i]);
 
             if (vkEndCommandBuffer(commandBuffers[i]) != VK_SUCCESS) {
@@ -396,10 +393,22 @@ private:
     }
     
     std::vector<Vertex> tileVertices; // Store tile vertices globally in the class
-    void createVertexBuffer() {
-        tileVertices = generateTilemapVertices(); // ✅ Assign to class member
-        VkDeviceSize bufferSize = sizeof(tileVertices[0]) * tileVertices.size();
 
+    void createVertexBuffer() {
+        // Step 1: Generate tilemap vertices
+        tileVertices = generateTilemapVertices();
+
+        // Debugging: Check vertex count
+        std::cout << "🟢 Tilemap Vertex Count: " << tileVertices.size() << std::endl;
+        if (tileVertices.empty()) {
+            throw std::runtime_error("❌ ERROR: tileVertices is empty! Tilemap generation failed.");
+        }
+
+        // Step 2: Calculate Buffer Size
+        VkDeviceSize bufferSize = sizeof(tileVertices[0]) * tileVertices.size();
+        std::cout << "🟢 Buffer Size: " << bufferSize << " bytes" << std::endl;
+
+        // Step 3: Create Vertex Buffer
         VkBufferCreateInfo bufferInfo{};
         bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
         bufferInfo.size = bufferSize;
@@ -407,9 +416,10 @@ private:
         bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
 
         if (vkCreateBuffer(device, &bufferInfo, nullptr, &vertexBuffer) != VK_SUCCESS) {
-            throw std::runtime_error("ERROR: Failed to create vertex buffer!");
+            throw std::runtime_error("❌ ERROR: Failed to create vertex buffer!");
         }
 
+        // Step 4: Get Memory Requirements
         VkMemoryRequirements memRequirements;
         vkGetBufferMemoryRequirements(device, vertexBuffer, &memRequirements);
 
@@ -420,20 +430,30 @@ private:
                                                    VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
                                                    VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
 
+        // Step 5: Allocate Memory
         if (vkAllocateMemory(device, &allocInfo, nullptr, &vertexBufferMemory) != VK_SUCCESS) {
-            throw std::runtime_error("ERROR: Failed to allocate vertex buffer memory!");
+            throw std::runtime_error("❌ ERROR: Failed to allocate vertex buffer memory!");
         }
 
+        // Step 6: Bind Buffer Memory
         vkBindBufferMemory(device, vertexBuffer, vertexBufferMemory, 0);
 
+        // Step 7: Copy Data to GPU Memory
         void* data;
         vkMapMemory(device, vertexBufferMemory, 0, bufferSize, 0, &data);
-        memcpy(data, tileVertices.data(), (size_t) bufferSize);
+        std::memcpy(data, tileVertices.data(), (size_t) bufferSize);
+        
+        // Ensure data is flushed to GPU memory
+        VkMappedMemoryRange memoryRange{};
+        memoryRange.sType = VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE;
+        memoryRange.memory = vertexBufferMemory;
+        memoryRange.size = bufferSize;
+        vkFlushMappedMemoryRanges(device, 1, &memoryRange);
+
         vkUnmapMemory(device, vertexBufferMemory);
 
         std::cout << "✅ Vertex Buffer Updated Successfully with Tilemap!" << std::endl;
     }
-
 
     void initVulkan() {
         createInstance();
