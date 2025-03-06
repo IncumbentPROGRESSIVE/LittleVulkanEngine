@@ -213,18 +213,22 @@ class HelloTriangleApplication {
     }
     std::array<VkVertexInputAttributeDescription, 2> getAttributeDescriptions() {
         std::array<VkVertexInputAttributeDescription, 2> attributeDescriptions{};
-        // Position (vec2) -> location 0
+
+        // Position (vec2) -> Location 0
         attributeDescriptions[0].binding = 0;
         attributeDescriptions[0].location = 0;
         attributeDescriptions[0].format = VK_FORMAT_R32G32_SFLOAT; // Matches vec2
         attributeDescriptions[0].offset = offsetof(Vertex, pos);
-        // Color (vec3) -> location 1
+
+        // Color (vec3) -> Location 1
         attributeDescriptions[1].binding = 0;
         attributeDescriptions[1].location = 1;
         attributeDescriptions[1].format = VK_FORMAT_R32G32B32_SFLOAT; // Matches vec3
         attributeDescriptions[1].offset = offsetof(Vertex, color);
+
         return attributeDescriptions;
     }
+
     
 public:
     void run() {
@@ -274,6 +278,10 @@ private:
     }
     void createCommandBuffers() {
         commandBuffers.resize(swapChainFramebuffers.size());
+        for (size_t i = 0; i < std::min(tileVertices.size(), 10UL); i++) {
+            std::cout << "Vertex " << i << " Pos: (" << tileVertices[i].pos.x << ", " << tileVertices[i].pos.y << ") "
+                      << "Color: (" << tileVertices[i].color.r << ", " << tileVertices[i].color.g << ", " << tileVertices[i].color.b << ")\n";
+        }
 
         VkCommandBufferAllocateInfo allocInfo{};
         allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
@@ -480,10 +488,13 @@ private:
         // Vertex Input Configuration
         VkPipelineVertexInputStateCreateInfo vertexInputInfo{};
         vertexInputInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
+
+        // Set bindings and attributes correctly
         VkVertexInputBindingDescription bindingDescription = getBindingDescription();
+        std::array<VkVertexInputAttributeDescription, 2> attributeDescriptions = getAttributeDescriptions();
+
         vertexInputInfo.vertexBindingDescriptionCount = 1;
         vertexInputInfo.pVertexBindingDescriptions = &bindingDescription;
-        std::array<VkVertexInputAttributeDescription, 2> attributeDescriptions = getAttributeDescriptions();
         vertexInputInfo.vertexAttributeDescriptionCount = static_cast<uint32_t>(attributeDescriptions.size());
         vertexInputInfo.pVertexAttributeDescriptions = attributeDescriptions.data();
 
@@ -514,14 +525,17 @@ private:
         viewportState.pScissors = &scissor;
 
         // Rasterizer
+        // Rasterizer
         VkPipelineRasterizationStateCreateInfo rasterizer{};
         rasterizer.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
         rasterizer.depthClampEnable = VK_FALSE;
         rasterizer.rasterizerDiscardEnable = VK_FALSE;
         rasterizer.polygonMode = VK_POLYGON_MODE_FILL;
         rasterizer.lineWidth = 1.0f;
-        rasterizer.cullMode = VK_CULL_MODE_NONE;  // ✅ Disable Face Culling
-        rasterizer.frontFace = VK_FRONT_FACE_CLOCKWISE;  // ✅ Ensure correct winding order
+        rasterizer.cullMode = VK_CULL_MODE_NONE;  // Disable face culling
+        rasterizer.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE; // Adjust as needed
+        rasterizer.depthBiasEnable = VK_FALSE;
+
 
         // Multisampling
         VkPipelineMultisampleStateCreateInfo multisampling{};
