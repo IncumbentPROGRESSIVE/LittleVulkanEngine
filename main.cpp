@@ -16,6 +16,7 @@
 #include <limits.h>
 #include <array>
 #include <glm/glm.hpp>
+
 struct Vertex {
     glm::vec2 pos;   // Position (x, y)
     glm::vec3 color; // Tile color (r, g, b)
@@ -322,7 +323,7 @@ private:
             vkCmdBindVertexBuffers(commandBuffers[i], 0, 1, vertexBuffers, offsets);
 
             // ✅ Fix: Divide by 3 because Vulkan expects vertex count, not total array size.
-            vkCmdDraw(commandBuffers[i], static_cast<uint32_t>(tileVertices.size()), 1, 0, 0);
+            vkCmdDraw(commandBuffers[i], static_cast<uint32_t>(tileVertices.size() / 3), 1, 0, 0);
 
             vkCmdEndRenderPass(commandBuffers[i]);
 
@@ -469,12 +470,28 @@ private:
     }
     
     void createGraphicsPipeline() {
+        // Destroy existing pipeline if it exists
+        if (graphicsPipeline != VK_NULL_HANDLE) {
+            vkDestroyPipeline(device, graphicsPipeline, nullptr);
+            graphicsPipeline = VK_NULL_HANDLE; // Reset the handle
+        }
+
         // Load Shader Files
         std::string vertShaderPath = "shaders/triangle.vert.spv";
         std::string fragShaderPath = "shaders/triangle.frag.spv";
         std::cout << "Attempting to open shader files..." << std::endl;
         auto vertShaderCode = readFile(vertShaderPath);
         auto fragShaderCode = readFile(fragShaderPath);
+
+        std::cout << "Vertex Shader First Bytes: ";
+        for (size_t i = 0; i < std::min(vertShaderCode.size(), size_t(10)); i++)
+            std::cout << std::hex << (int)vertShaderCode[i] << " ";
+        std::cout << std::endl;
+
+        std::cout << "Fragment Shader First Bytes: ";
+        for (size_t i = 0; i < std::min(fragShaderCode.size(), size_t(10)); i++)
+            std::cout << std::hex << (int)fragShaderCode[i] << " ";
+        std::cout << std::endl;
 
         // Create Shader Modules
         VkShaderModule vertShaderModule = createShaderModule(vertShaderCode);
@@ -512,7 +529,7 @@ private:
         viewport.height = static_cast<float>(swapChainExtent.height);
         viewport.minDepth = 0.0f;
         viewport.maxDepth = 1.0f;
-        
+
         VkRect2D scissor{};
         scissor.offset = {0, 0};
         scissor.extent = swapChainExtent;
@@ -525,7 +542,6 @@ private:
         viewportState.pScissors = &scissor;
 
         // Rasterizer
-        // Rasterizer
         VkPipelineRasterizationStateCreateInfo rasterizer{};
         rasterizer.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
         rasterizer.depthClampEnable = VK_FALSE;
@@ -535,7 +551,6 @@ private:
         rasterizer.cullMode = VK_CULL_MODE_NONE;  // Disable face culling
         rasterizer.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE; // Adjust as needed
         rasterizer.depthBiasEnable = VK_FALSE;
-
 
         // Multisampling
         VkPipelineMultisampleStateCreateInfo multisampling{};
