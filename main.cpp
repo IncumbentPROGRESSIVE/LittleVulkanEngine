@@ -230,6 +230,7 @@ class HelloTriangleApplication {
         return attributeDescriptions;
     }
 
+
     
 public:
     void run() {
@@ -278,11 +279,11 @@ private:
         }
     }
     void createCommandBuffers() {
-        commandBuffers.resize(swapChainFramebuffers.size());
-        for (size_t i = 0; i < std::min(tileVertices.size(), 10UL); i++) {
-            std::cout << "Vertex " << i << " Pos: (" << tileVertices[i].pos.x << ", " << tileVertices[i].pos.y << ") "
-                      << "Color: (" << tileVertices[i].color.r << ", " << tileVertices[i].color.g << ", " << tileVertices[i].color.b << ")\n";
+        if (!commandBuffers.empty()) {
+            vkFreeCommandBuffers(device, commandPool, static_cast<uint32_t>(commandBuffers.size()), commandBuffers.data());
         }
+
+        commandBuffers.resize(swapChainFramebuffers.size());
 
         VkCommandBufferAllocateInfo allocInfo{};
         allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
@@ -310,7 +311,6 @@ private:
             renderPassInfo.renderArea.offset = {0, 0};
             renderPassInfo.renderArea.extent = swapChainExtent;
 
-            // Background clear color (light blue)
             VkClearValue clearColor = {{{0.678f, 0.847f, 0.902f, 1.0f}}};
             renderPassInfo.clearValueCount = 1;
             renderPassInfo.pClearValues = &clearColor;
@@ -322,8 +322,7 @@ private:
             VkDeviceSize offsets[] = {0};
             vkCmdBindVertexBuffers(commandBuffers[i], 0, 1, vertexBuffers, offsets);
 
-            // ✅ Fix: Divide by 3 because Vulkan expects vertex count, not total array size.
-            vkCmdDraw(commandBuffers[i], static_cast<uint32_t>(tileVertices.size() / 3), 1, 0, 0);
+            vkCmdDraw(commandBuffers[i], static_cast<uint32_t>(tileVertices.size()), 1, 0, 0);
 
             vkCmdEndRenderPass(commandBuffers[i]);
 
@@ -332,7 +331,7 @@ private:
             }
         }
 
-        std::cout << "✅ Command Buffers Created Successfully!" << std::endl;
+        std::cout << "✅ Command Buffers Created and Re-recorded Successfully!" << std::endl;
     }
 
     VkRenderPass renderPass;
@@ -361,44 +360,60 @@ private:
     void createVertexBuffer() {
         tileVertices = generateTilemapVertices();
         std::cout << "🟢 Tilemap Vertex Count: " << tileVertices.size() << std::endl;
+
         if (tileVertices.empty()) {
             throw std::runtime_error("❌ ERROR: tileVertices is empty! Tilemap generation failed.");
         }
+
         VkDeviceSize bufferSize = sizeof(tileVertices[0]) * tileVertices.size();
         std::cout << "🟢 Buffer Size: " << bufferSize << " bytes" << std::endl;
+
         VkBufferCreateInfo bufferInfo{};
         bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
         bufferInfo.size = bufferSize;
         bufferInfo.usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
         bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+
         if (vkCreateBuffer(device, &bufferInfo, nullptr, &vertexBuffer) != VK_SUCCESS) {
             throw std::runtime_error("❌ ERROR: Failed to create vertex buffer!");
         }
+
         VkMemoryRequirements memRequirements;
         vkGetBufferMemoryRequirements(device, vertexBuffer, &memRequirements);
+
         VkMemoryAllocateInfo allocInfo{};
         allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
         allocInfo.allocationSize = memRequirements.size;
         allocInfo.memoryTypeIndex = findMemoryType(memRequirements.memoryTypeBits,
                                                    VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
                                                    VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+
         if (vkAllocateMemory(device, &allocInfo, nullptr, &vertexBufferMemory) != VK_SUCCESS) {
             throw std::runtime_error("❌ ERROR: Failed to allocate vertex buffer memory!");
         }
+
         vkBindBufferMemory(device, vertexBuffer, vertexBufferMemory, 0);
+
+        // ✅ Map and Copy Data to Buffer
         void* data;
         vkMapMemory(device, vertexBufferMemory, 0, bufferSize, 0, &data);
         memcpy(data, tileVertices.data(), (size_t) bufferSize);
-        
-        // Ensure data is flushed to GPU memory
+
+        // ✅ Flush Memory to Ensure GPU Sees Changes
         VkMappedMemoryRange memoryRange{};
         memoryRange.sType = VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE;
         memoryRange.memory = vertexBufferMemory;
+        memoryRange.offset = 0;
         memoryRange.size = bufferSize;
+
         vkFlushMappedMemoryRanges(device, 1, &memoryRange);
+
+        // ✅ Unmap Memory (optional since `HOST_COHERENT_BIT` ensures visibility, but good practice)
         vkUnmapMemory(device, vertexBufferMemory);
+
         std::cout << "✅ Vertex Buffer Updated Successfully with Tilemap!\n";
     }
+
     void initVulkan() {
         createInstance();
         setupDebugMessenger();
@@ -472,13 +487,18 @@ private:
     void createGraphicsPipeline() {
         // Destroy existing pipeline if it exists
         if (graphicsPipeline != VK_NULL_HANDLE) {
+            std::cout << "🛑 Destroying old graphics pipeline before recreation..." << std::endl;
             vkDestroyPipeline(device, graphicsPipeline, nullptr);
-            graphicsPipeline = VK_NULL_HANDLE; // Reset the handle
+            graphicsPipeline = VK_NULL_HANDLE;
         }
 
         // Load Shader Files
         std::string vertShaderPath = "shaders/triangle.vert.spv";
         std::string fragShaderPath = "shaders/triangle.frag.spv";
+
+        std::cout << "Loading Vertex Shader: " << vertShaderPath << std::endl;
+        std::cout << "Loading Fragment Shader: " << fragShaderPath << std::endl;
+
         std::cout << "Attempting to open shader files..." << std::endl;
         auto vertShaderCode = readFile(vertShaderPath);
         auto fragShaderCode = readFile(fragShaderPath);
@@ -506,7 +526,6 @@ private:
         VkPipelineVertexInputStateCreateInfo vertexInputInfo{};
         vertexInputInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
 
-        // Set bindings and attributes correctly
         VkVertexInputBindingDescription bindingDescription = getBindingDescription();
         std::array<VkVertexInputAttributeDescription, 2> attributeDescriptions = getAttributeDescriptions();
 
@@ -549,7 +568,7 @@ private:
         rasterizer.polygonMode = VK_POLYGON_MODE_FILL;
         rasterizer.lineWidth = 1.0f;
         rasterizer.cullMode = VK_CULL_MODE_NONE;  // Disable face culling
-        rasterizer.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE; // Adjust as needed
+        rasterizer.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
         rasterizer.depthBiasEnable = VK_FALSE;
 
         // Multisampling
@@ -596,6 +615,8 @@ private:
         if (vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &graphicsPipeline) != VK_SUCCESS) {
             throw std::runtime_error("ERROR: Failed to create graphics pipeline!");
         }
+
+        std::cout << "✅ Graphics Pipeline Created Successfully!" << std::endl;
 
         // Clean up shader modules
         vkDestroyShaderModule(device, vertShaderModule, nullptr);
