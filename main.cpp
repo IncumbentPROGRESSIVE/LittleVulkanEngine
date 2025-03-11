@@ -16,6 +16,7 @@
 #include <limits.h>
 #include <array>
 #include <glm/glm.hpp>
+#include <sys/stat.h>
 
 struct Vertex {
     glm::vec2 pos;   // Position (x, y)
@@ -191,19 +192,31 @@ class HelloTriangleApplication {
         return shaderModule;
     }
     std::vector<char> readFile(const std::string& filename) {
-        std::ifstream file(filename, std::ios::ate | std::ios::binary);
         // 🔹 Debug: Print the full file path
         std::cout << "Attempting to open file: " << filename << std::endl;
+
+        // 🕒 Check last modified time before opening the file
+        struct stat result;
+        if (stat(filename.c_str(), &result) == 0) {
+            std::cout << "🕒 Shader Last Modified: " << ctime(&result.st_mtime);
+        } else {
+            std::cerr << "❌ ERROR: Could not retrieve file modification time!" << std::endl;
+        }
+
+        std::ifstream file(filename, std::ios::ate | std::ios::binary);
         if (!file.is_open()) {
             throw std::runtime_error("failed to open file: " + filename);
         }
+
         size_t fileSize = (size_t)file.tellg();
         std::vector<char> buffer(fileSize);
         file.seekg(0);
         file.read(buffer.data(), fileSize);
         file.close();
+
         return buffer;
     }
+
     
     VkVertexInputBindingDescription getBindingDescription() {
         VkVertexInputBindingDescription bindingDescription{};
@@ -218,13 +231,13 @@ class HelloTriangleApplication {
         // Position (vec2) -> Location 0
         attributeDescriptions[0].binding = 0;
         attributeDescriptions[0].location = 0;
-        attributeDescriptions[0].format = VK_FORMAT_R32G32_SFLOAT; // Matches vec2
+        attributeDescriptions[0].format = VK_FORMAT_R32G32_SFLOAT; // ✅ Matches vec2 in GLSL
         attributeDescriptions[0].offset = offsetof(Vertex, pos);
 
         // Color (vec3) -> Location 1
         attributeDescriptions[1].binding = 0;
         attributeDescriptions[1].location = 1;
-        attributeDescriptions[1].format = VK_FORMAT_R32G32B32_SFLOAT; // Matches vec3
+        attributeDescriptions[1].format = VK_FORMAT_R32G32B32_SFLOAT; // ✅ Matches vec3 in GLSL
         attributeDescriptions[1].offset = offsetof(Vertex, color);
 
         return attributeDescriptions;
@@ -322,6 +335,7 @@ private:
             VkDeviceSize offsets[] = {0};
             vkCmdBindVertexBuffers(commandBuffers[i], 0, 1, vertexBuffers, offsets);
 
+            std::cout << "🟢 Drawing " << tileVertices.size() << " vertices." << std::endl;
             vkCmdDraw(commandBuffers[i], static_cast<uint32_t>(tileVertices.size()), 1, 0, 0);
 
             vkCmdEndRenderPass(commandBuffers[i]);
@@ -330,8 +344,6 @@ private:
                 throw std::runtime_error("ERROR: Failed to record command buffer!");
             }
         }
-
-        std::cout << "✅ Command Buffers Created and Re-recorded Successfully!" << std::endl;
     }
 
     VkRenderPass renderPass;
@@ -368,6 +380,17 @@ private:
         VkDeviceSize bufferSize = sizeof(tileVertices[0]) * tileVertices.size();
         std::cout << "🟢 Buffer Size: " << bufferSize << " bytes" << std::endl;
 
+        // 🔹 Print first 10 vertices to verify they are correct
+        std::cout << "🟢 Vertex Buffer Data (First 10 vertices):" << std::endl;
+        for (size_t i = 0; i < std::min(tileVertices.size(), size_t(10)); i++) {
+            std::cout << "Vertex " << i << ": Pos("
+                      << tileVertices[i].pos.x << ", " << tileVertices[i].pos.y
+                      << ") Color(" << tileVertices[i].color.r << ", "
+                      << tileVertices[i].color.g << ", " << tileVertices[i].color.b << ")"
+                      << std::endl;
+        }
+
+        // Vulkan buffer creation (unchanged)
         VkBufferCreateInfo bufferInfo{};
         bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
         bufferInfo.size = bufferSize;
@@ -394,25 +417,15 @@ private:
 
         vkBindBufferMemory(device, vertexBuffer, vertexBufferMemory, 0);
 
-        // ✅ Map and Copy Data to Buffer
+        // ✅ Copy Data to Buffer
         void* data;
         vkMapMemory(device, vertexBufferMemory, 0, bufferSize, 0, &data);
         memcpy(data, tileVertices.data(), (size_t) bufferSize);
-
-        // ✅ Flush Memory to Ensure GPU Sees Changes
-        VkMappedMemoryRange memoryRange{};
-        memoryRange.sType = VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE;
-        memoryRange.memory = vertexBufferMemory;
-        memoryRange.offset = 0;
-        memoryRange.size = bufferSize;
-
-        vkFlushMappedMemoryRanges(device, 1, &memoryRange);
-
-        // ✅ Unmap Memory (optional since `HOST_COHERENT_BIT` ensures visibility, but good practice)
         vkUnmapMemory(device, vertexBufferMemory);
 
         std::cout << "✅ Vertex Buffer Updated Successfully with Tilemap!\n";
     }
+
 
     void initVulkan() {
         createInstance();
@@ -423,13 +436,17 @@ private:
         createSwapChain();
         createImageViews();
         createRenderPass();
+        
+        createPipelineLayout(); // 🟢 Add this line to ensure it's called
         createGraphicsPipeline();
+        
         createFramebuffers();
         createCommandPool();
         createVertexBuffer();
         createCommandBuffers();
         createSyncObjects();
     }
+
     void createRenderPass() {
         VkAttachmentDescription colorAttachment{};
         colorAttachment.format = swapChainImageFormat;
@@ -468,22 +485,56 @@ private:
     void createPipelineLayout() {
         VkPipelineLayoutCreateInfo pipelineLayoutInfo{};
         pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-        pipelineLayoutInfo.setLayoutCount = 0; // No descriptor sets
+        pipelineLayoutInfo.setLayoutCount = 0;  // No descriptor sets
         pipelineLayoutInfo.pSetLayouts = nullptr;
         pipelineLayoutInfo.pushConstantRangeCount = 0;
         pipelineLayoutInfo.pPushConstantRanges = nullptr;
+
+        std::cout << "🔍 Attempting to create Pipeline Layout..." << std::endl;
+
         VkResult pipelineLayoutResult = vkCreatePipelineLayout(device, &pipelineLayoutInfo, nullptr, &pipelineLayout);
+
         if (pipelineLayoutResult != VK_SUCCESS) {
-            throw std::runtime_error("ERROR: Failed to create pipeline layout!");
+            std::cerr << "❌ ERROR: Failed to create pipeline layout! VkResult = "
+                      << pipelineLayoutResult << " (" << getVkResultString(pipelineLayoutResult) << ")"
+                      << std::endl;
+            throw std::runtime_error("Pipeline layout creation failed!");
         }
-        // **Debug Check**
+
         if (pipelineLayout == VK_NULL_HANDLE) {
-            throw std::runtime_error("ERROR: pipelineLayout is NULL after creation!");
+            throw std::runtime_error("❌ ERROR: pipelineLayout is NULL after creation!");
         } else {
             std::cout << "✅ Pipeline Layout Created Successfully: " << pipelineLayout << std::endl;
         }
     }
-    
+
+    // Function to convert VkResult to a human-readable string
+    std::string getVkResultString(VkResult result) {
+        switch (result) {
+            case VK_SUCCESS: return "VK_SUCCESS";
+            case VK_NOT_READY: return "VK_NOT_READY";
+            case VK_TIMEOUT: return "VK_TIMEOUT";
+            case VK_EVENT_SET: return "VK_EVENT_SET";
+            case VK_EVENT_RESET: return "VK_EVENT_RESET";
+            case VK_INCOMPLETE: return "VK_INCOMPLETE";
+            case VK_ERROR_OUT_OF_HOST_MEMORY: return "VK_ERROR_OUT_OF_HOST_MEMORY";
+            case VK_ERROR_OUT_OF_DEVICE_MEMORY: return "VK_ERROR_OUT_OF_DEVICE_MEMORY";
+            case VK_ERROR_INITIALIZATION_FAILED: return "VK_ERROR_INITIALIZATION_FAILED";
+            case VK_ERROR_DEVICE_LOST: return "VK_ERROR_DEVICE_LOST";
+            case VK_ERROR_MEMORY_MAP_FAILED: return "VK_ERROR_MEMORY_MAP_FAILED";
+            case VK_ERROR_LAYER_NOT_PRESENT: return "VK_ERROR_LAYER_NOT_PRESENT";
+            case VK_ERROR_EXTENSION_NOT_PRESENT: return "VK_ERROR_EXTENSION_NOT_PRESENT";
+            case VK_ERROR_FEATURE_NOT_PRESENT: return "VK_ERROR_FEATURE_NOT_PRESENT";
+            case VK_ERROR_INCOMPATIBLE_DRIVER: return "VK_ERROR_INCOMPATIBLE_DRIVER";
+            case VK_ERROR_TOO_MANY_OBJECTS: return "VK_ERROR_TOO_MANY_OBJECTS";
+            case VK_ERROR_FORMAT_NOT_SUPPORTED: return "VK_ERROR_FORMAT_NOT_SUPPORTED";
+            case VK_ERROR_FRAGMENTED_POOL: return "VK_ERROR_FRAGMENTED_POOL";
+            case VK_ERROR_UNKNOWN: return "VK_ERROR_UNKNOWN";
+            default: return "UNKNOWN_VK_RESULT";
+        }
+    }
+
+
     void createGraphicsPipeline() {
         // Destroy existing pipeline if it exists
         if (graphicsPipeline != VK_NULL_HANDLE) {
@@ -493,29 +544,39 @@ private:
         }
 
         // Load Shader Files
-        std::string vertShaderPath = "shaders/triangle.vert.spv";
-        std::string fragShaderPath = "shaders/triangle.frag.spv";
+        std::string vertShaderPath = "/Users/colinleary/desktop/VulkanSDK/LittleVulkanEngine/shaders/triangle.vert.spv";
+        std::string fragShaderPath = "/Users/colinleary/desktop/VulkanSDK/LittleVulkanEngine/shaders/triangle.frag.spv";
 
         std::cout << "Loading Vertex Shader: " << vertShaderPath << std::endl;
         std::cout << "Loading Fragment Shader: " << fragShaderPath << std::endl;
 
-        std::cout << "Attempting to open shader files..." << std::endl;
         auto vertShaderCode = readFile(vertShaderPath);
         auto fragShaderCode = readFile(fragShaderPath);
 
-        std::cout << "Vertex Shader First Bytes: ";
-        for (size_t i = 0; i < std::min(vertShaderCode.size(), size_t(10)); i++)
-            std::cout << std::hex << (int)vertShaderCode[i] << " ";
-        std::cout << std::endl;
-
-        std::cout << "Fragment Shader First Bytes: ";
-        for (size_t i = 0; i < std::min(fragShaderCode.size(), size_t(10)); i++)
-            std::cout << std::hex << (int)fragShaderCode[i] << " ";
-        std::cout << std::endl;
+        std::cout << "Vertex Shader Size: " << vertShaderCode.size() << " bytes" << std::endl;
+        std::cout << "Fragment Shader Size: " << fragShaderCode.size() << " bytes" << std::endl;
 
         // Create Shader Modules
         VkShaderModule vertShaderModule = createShaderModule(vertShaderCode);
         VkShaderModule fragShaderModule = createShaderModule(fragShaderCode);
+
+        std::cout << "🔍 Debugging Graphics Pipeline Creation...\n";
+        std::cout << "🟢 Device: " << device << "\n";
+        std::cout << "🟢 Pipeline Layout: " << pipelineLayout << "\n";
+        std::cout << "🟢 Render Pass: " << renderPass << "\n";
+        std::cout << "🟢 Vertex Shader Module: " << vertShaderModule << "\n";
+        std::cout << "🟢 Fragment Shader Module: " << fragShaderModule << "\n";
+
+        // Safety Checks Before Vulkan Call
+        if (!vertShaderModule || !fragShaderModule) {
+            throw std::runtime_error("❌ Shader modules were not created successfully!");
+        }
+        if (!renderPass) {
+            throw std::runtime_error("❌ Render pass was not created successfully!");
+        }
+        if (!pipelineLayout) {
+            throw std::runtime_error("❌ Pipeline layout was not created successfully!");
+        }
 
         VkPipelineShaderStageCreateInfo shaderStages[] = {
             {VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO, nullptr, 0, VK_SHADER_STAGE_VERTEX_BIT, vertShaderModule, "main", nullptr},
@@ -567,7 +628,7 @@ private:
         rasterizer.rasterizerDiscardEnable = VK_FALSE;
         rasterizer.polygonMode = VK_POLYGON_MODE_FILL;
         rasterizer.lineWidth = 1.0f;
-        rasterizer.cullMode = VK_CULL_MODE_NONE;  // Disable face culling
+        rasterizer.cullMode = VK_CULL_MODE_NONE;
         rasterizer.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
         rasterizer.depthBiasEnable = VK_FALSE;
 
@@ -611,17 +672,19 @@ private:
         pipelineInfo.layout = pipelineLayout;
         pipelineInfo.renderPass = renderPass;
         pipelineInfo.subpass = 0;
+        pipelineInfo.flags = VK_PIPELINE_CREATE_DISABLE_OPTIMIZATION_BIT;
 
         if (vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &graphicsPipeline) != VK_SUCCESS) {
-            throw std::runtime_error("ERROR: Failed to create graphics pipeline!");
+            throw std::runtime_error("❌ Graphics pipeline was not created successfully!");
         }
 
-        std::cout << "✅ Graphics Pipeline Created Successfully!" << std::endl;
+        std::cout << "✅ Graphics Pipeline Fully Rebuilt!\n";
 
         // Clean up shader modules
         vkDestroyShaderModule(device, vertShaderModule, nullptr);
         vkDestroyShaderModule(device, fragShaderModule, nullptr);
     }
+
 
     void mainLoop() {
         while (!glfwWindowShouldClose(window)) {
