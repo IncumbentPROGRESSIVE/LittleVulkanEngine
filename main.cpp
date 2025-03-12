@@ -117,13 +117,17 @@ std::vector<Vertex> generateTilemapVertices(const std::vector<std::vector<int>>&
         for (int x = 0; x < TILEMAP_WIDTH; x++) {
             int tileID = tilemap[y][x];
 
-            glm::vec3 color = (tileID == 0) ? glm::vec3(0.8f, 0.8f, 0.8f)
-                                            : glm::vec3(0.2f, 0.2f, 0.2f);
+            // 🔥 Generate a color based on the tile ID
+            glm::vec3 color = glm::vec3(
+                (tileID % 256) / 255.0f,          // Red component
+                ((tileID / 3) % 256) / 255.0f,    // Green component
+                ((tileID / 7) % 256) / 255.0f     // Blue component
+            );
 
             float xOffset = startX + x * tileSizeX;
             float yOffset = startY - y * tileSizeY;
 
-            // Two triangles per tile
+            // Two triangles per tile (forming a quad)
             vertices.push_back({{xOffset, yOffset}, color});
             vertices.push_back({{xOffset + tileSizeX, yOffset}, color});
             vertices.push_back({{xOffset, yOffset - tileSizeY}, color});
@@ -134,9 +138,10 @@ std::vector<Vertex> generateTilemapVertices(const std::vector<std::vector<int>>&
         }
     }
 
-    std::cout << "✅ Tilemap Vertices Generated Successfully!\n";
+    std::cout << "✅ Tilemap Vertices with Colors Generated Successfully!\n";
     return vertices;
 }
+
 
 void printWorkingDirectory() {
     char cwd[PATH_MAX];
@@ -689,7 +694,7 @@ private:
         rasterizer.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
         rasterizer.depthClampEnable = VK_FALSE;
         rasterizer.rasterizerDiscardEnable = VK_FALSE;
-        rasterizer.polygonMode = VK_POLYGON_MODE_LINE;
+        rasterizer.polygonMode = VK_POLYGON_MODE_FILL;
         rasterizer.lineWidth = 1.0f;
         rasterizer.cullMode = VK_CULL_MODE_NONE;
         rasterizer.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
