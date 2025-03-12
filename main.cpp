@@ -1,5 +1,6 @@
 #define GLFW_INCLUDE_VULKAN
 #include <fstream>
+#include <sstream>
 #include <GLFW/glfw3.h>
 #include <iostream>
 #include <stdexcept>
@@ -22,6 +23,73 @@ struct Vertex {
     glm::vec2 pos;   // Position (x, y)
     glm::vec3 color; // Tile color (r, g, b)
 };
+
+const int TILEMAP_WIDTH = 32;
+const int TILEMAP_HEIGHT = 32;
+const std::string TILEMAP_PATH = "/Users/colinleary/Downloads/RoomOneNew_Cleaned (2).csv";
+ 
+std::vector<std::vector<int>> loadTilemapCSV(const std::string& filename) {
+    std::vector<std::vector<int>> tilemap;
+
+    if (!std::filesystem::exists(filename)) {
+        throw std::runtime_error("❌ ERROR: Tilemap file not found: " + filename);
+    }
+
+    std::ifstream file(filename);
+    if (!file.is_open()) {
+        throw std::runtime_error("❌ ERROR: Unable to open tilemap CSV file!");
+    }
+
+    std::string line;
+    int rowCount = 0;
+
+    while (std::getline(file, line)) {
+        std::vector<int> row;
+        std::stringstream ss(line);
+        std::string cell;
+
+        while (std::getline(ss, cell, ',')) {
+            try {
+                row.push_back(std::stoi(cell));
+            } catch (...) {
+                throw std::runtime_error("❌ ERROR: Invalid data in CSV file!");
+            }
+        }
+
+        if (row.size() != TILEMAP_WIDTH) {
+            throw std::runtime_error("❌ ERROR: Unexpected row width at line " + std::to_string(rowCount + 1));
+        }
+
+        tilemap.push_back(row);
+        std::cout << "🔹 Row " << rowCount + 1 << " has " << row.size() << " tiles" << std::endl;
+        rowCount++;
+    }
+
+    file.close();
+
+    // Debug: Print the last row read
+    if (!tilemap.empty()) {
+        std::cout << "🔍 Last row read: ";
+        for (int val : tilemap.back()) {
+            std::cout << val << " ";
+        }
+        std::cout << std::endl;
+    }
+
+    // Ensure the tilemap is exactly 32 rows
+    while (tilemap.size() < TILEMAP_HEIGHT) {
+        tilemap.push_back(std::vector<int>(TILEMAP_WIDTH, 0));  // Fill missing rows with zeros
+        std::cout << "⚠️ WARNING: Adding missing row " << tilemap.size() << " with default tiles." << std::endl;
+    }
+
+    if (tilemap.size() != TILEMAP_HEIGHT) {
+        throw std::runtime_error("❌ ERROR: Unexpected tilemap height! Expected " + std::to_string(TILEMAP_HEIGHT) + " but got " + std::to_string(tilemap.size()));
+    }
+
+    std::cout << "✅ Loaded Tilemap Successfully! (" << tilemap.size() << " rows)" << std::endl;
+    return tilemap;
+}
+
 const int ROOM_WIDTH = 10;
 const int ROOM_HEIGHT = 8;
 const float TILE_SIZE = 0.2f;
@@ -35,30 +103,41 @@ const std::vector<std::vector<int>> tilemap = {
     {1, 0, 0, 0, 0, 0, 0, 0, 0, 1},
     {1, 1, 1, 1, 1, 1, 1, 1, 1, 1}
 };
-std::vector<Vertex> generateTilemapVertices() {
+#include <glm/glm.hpp>
+
+std::vector<Vertex> generateTilemapVertices(const std::vector<std::vector<int>>& tilemap) {
     std::vector<Vertex> vertices;
-    float startX = -1.0f; // Vulkan's NDC space starts from (-1,1)
-    float startY = 1.0f;  // Top-left corner
-    int count = 0;
-    for (int y = 0; y < ROOM_HEIGHT; y++) {
-        for (int x = 0; x < ROOM_WIDTH; x++) {
-            float xOffset = startX + x * TILE_SIZE;
-            float yOffset = startY - y * TILE_SIZE; // Vulkan's Y+ is up
-            glm::vec3 color = (tilemap[y][x] == 1) ? glm::vec3(0.5f, 0.5f, 0.5f) : glm::vec3(0.9f, 0.9f, 0.9f);
-            // First triangle
+    
+    float startX = -1.0f;
+    float startY = 1.0f;
+    float tileSizeX = 2.0f / TILEMAP_WIDTH;
+    float tileSizeY = 2.0f / TILEMAP_HEIGHT;
+
+    for (int y = 0; y < TILEMAP_HEIGHT; y++) {
+        for (int x = 0; x < TILEMAP_WIDTH; x++) {
+            int tileID = tilemap[y][x];
+
+            glm::vec3 color = (tileID == 0) ? glm::vec3(0.8f, 0.8f, 0.8f)
+                                            : glm::vec3(0.2f, 0.2f, 0.2f);
+
+            float xOffset = startX + x * tileSizeX;
+            float yOffset = startY - y * tileSizeY;
+
+            // Two triangles per tile
             vertices.push_back({{xOffset, yOffset}, color});
-            vertices.push_back({{xOffset + TILE_SIZE, yOffset}, color});
-            vertices.push_back({{xOffset, yOffset - TILE_SIZE}, color});
-            // Second triangle
-            vertices.push_back({{xOffset + TILE_SIZE, yOffset}, color});
-            vertices.push_back({{xOffset + TILE_SIZE, yOffset - TILE_SIZE}, color});
-            vertices.push_back({{xOffset, yOffset - TILE_SIZE}, color});
-            count += 6;
+            vertices.push_back({{xOffset + tileSizeX, yOffset}, color});
+            vertices.push_back({{xOffset, yOffset - tileSizeY}, color});
+
+            vertices.push_back({{xOffset + tileSizeX, yOffset}, color});
+            vertices.push_back({{xOffset + tileSizeX, yOffset - tileSizeY}, color});
+            vertices.push_back({{xOffset, yOffset - tileSizeY}, color});
         }
     }
-    std::cout << "✅ Generated Tilemap with " << count << " vertices.\n";
+
+    std::cout << "✅ Tilemap Vertices Generated Successfully!\n";
     return vertices;
 }
+
 void printWorkingDirectory() {
     char cwd[PATH_MAX];
     if (getcwd(cwd, sizeof(cwd)) != nullptr) {
@@ -324,7 +403,7 @@ private:
             renderPassInfo.renderArea.offset = {0, 0};
             renderPassInfo.renderArea.extent = swapChainExtent;
 
-            VkClearValue clearColor = {{{0.678f, 0.847f, 0.902f, 1.0f}}};
+            VkClearValue clearColor = {{{0.0f, 0.0f, 0.0f, 1.0f}}};  // Background is now black
             renderPassInfo.clearValueCount = 1;
             renderPassInfo.pClearValues = &clearColor;
 
@@ -345,6 +424,7 @@ private:
             }
         }
     }
+
 
     VkRenderPass renderPass;
     GLFWwindow* window;
@@ -370,27 +450,11 @@ private:
     
     std::vector<Vertex> tileVertices; // Store tile vertices globally in the class
     void createVertexBuffer() {
-        tileVertices = generateTilemapVertices();
-        std::cout << "🟢 Tilemap Vertex Count: " << tileVertices.size() << std::endl;
-
-        if (tileVertices.empty()) {
-            throw std::runtime_error("❌ ERROR: tileVertices is empty! Tilemap generation failed.");
-        }
-
+        std::vector<std::vector<int>> tilemap = loadTilemapCSV(TILEMAP_PATH);
+        tileVertices = generateTilemapVertices(tilemap);
+        
         VkDeviceSize bufferSize = sizeof(tileVertices[0]) * tileVertices.size();
-        std::cout << "🟢 Buffer Size: " << bufferSize << " bytes" << std::endl;
 
-        // 🔹 Print first 10 vertices to verify they are correct
-        std::cout << "🟢 Vertex Buffer Data (First 10 vertices):" << std::endl;
-        for (size_t i = 0; i < std::min(tileVertices.size(), size_t(10)); i++) {
-            std::cout << "Vertex " << i << ": Pos("
-                      << tileVertices[i].pos.x << ", " << tileVertices[i].pos.y
-                      << ") Color(" << tileVertices[i].color.r << ", "
-                      << tileVertices[i].color.g << ", " << tileVertices[i].color.b << ")"
-                      << std::endl;
-        }
-
-        // Vulkan buffer creation (unchanged)
         VkBufferCreateInfo bufferInfo{};
         bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
         bufferInfo.size = bufferSize;
@@ -417,15 +481,14 @@ private:
 
         vkBindBufferMemory(device, vertexBuffer, vertexBufferMemory, 0);
 
-        // ✅ Copy Data to Buffer
+        // Copy data to buffer
         void* data;
         vkMapMemory(device, vertexBufferMemory, 0, bufferSize, 0, &data);
         memcpy(data, tileVertices.data(), (size_t) bufferSize);
         vkUnmapMemory(device, vertexBufferMemory);
 
-        std::cout << "✅ Vertex Buffer Updated Successfully with Tilemap!\n";
+        std::cout << "✅ Vulkan Vertex Buffer Updated Successfully!\n";
     }
-
 
     void initVulkan() {
         createInstance();
@@ -626,7 +689,7 @@ private:
         rasterizer.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
         rasterizer.depthClampEnable = VK_FALSE;
         rasterizer.rasterizerDiscardEnable = VK_FALSE;
-        rasterizer.polygonMode = VK_POLYGON_MODE_FILL;
+        rasterizer.polygonMode = VK_POLYGON_MODE_LINE;
         rasterizer.lineWidth = 1.0f;
         rasterizer.cullMode = VK_CULL_MODE_NONE;
         rasterizer.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
