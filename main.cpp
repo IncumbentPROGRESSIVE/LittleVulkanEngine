@@ -117,17 +117,17 @@ std::vector<Vertex> generateTilemapVertices(const std::vector<std::vector<int>>&
         for (int x = 0; x < TILEMAP_WIDTH; x++) {
             int tileID = tilemap[y][x];
 
-            // 🔥 Generate a color based on the tile ID
+            // Generate a color for the entire quad
             glm::vec3 color = glm::vec3(
-                (tileID % 256) / 255.0f,          // Red component
-                ((tileID / 3) % 256) / 255.0f,    // Green component
-                ((tileID / 7) % 256) / 255.0f     // Blue component
+                (tileID % 256) / 255.0f,          // Red
+                ((tileID / 3) % 256) / 255.0f,    // Green
+                ((tileID / 7) % 256) / 255.0f     // Blue
             );
 
             float xOffset = startX + x * tileSizeX;
             float yOffset = startY - y * tileSizeY;
 
-            // Two triangles per tile (forming a quad)
+            // 🔥 Assign the same color to all 6 vertices in the quad
             vertices.push_back({{xOffset, yOffset}, color});
             vertices.push_back({{xOffset + tileSizeX, yOffset}, color});
             vertices.push_back({{xOffset, yOffset - tileSizeY}, color});
@@ -141,6 +141,7 @@ std::vector<Vertex> generateTilemapVertices(const std::vector<std::vector<int>>&
     std::cout << "✅ Tilemap Vertices with Colors Generated Successfully!\n";
     return vertices;
 }
+
 
 
 void printWorkingDirectory() {
