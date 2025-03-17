@@ -23,10 +23,9 @@
 #include "/Users/colinleary/Desktop/VulkanSDK/KTX-Software/include/ktxvulkan.h"
 
 struct Vertex {
-    glm::vec2 pos;   // Position (x, y)
-    glm::vec3 color; // Tile color (r, g, b)
+    glm::vec2 pos;    // Position (x, y)
+    glm::vec2 texCoord; // Texture Coordinates (u, v)
 };
-
 
 const int TILEMAP_WIDTH = 32;
 const int TILEMAP_HEIGHT = 32;
@@ -121,32 +120,30 @@ std::vector<Vertex> generateTilemapVertices(const std::vector<std::vector<int>>&
         for (int x = 0; x < TILEMAP_WIDTH; x++) {
             int tileID = tilemap[y][x];
 
-            // Generate a color for the entire quad
-            glm::vec3 color = glm::vec3(
-                (tileID % 256) / 255.0f,          // Red
-                ((tileID / 3) % 256) / 255.0f,    // Green
-                ((tileID / 7) % 256) / 255.0f     // Blue
-            );
-
+            // Remove color calculations and replace with texture coordinates
             float xOffset = startX + x * tileSizeX;
             float yOffset = startY - y * tileSizeY;
 
-            // 🔥 Assign the same color to all 6 vertices in the quad
-            vertices.push_back({{xOffset, yOffset}, color});
-            vertices.push_back({{xOffset + tileSizeX, yOffset}, color});
-            vertices.push_back({{xOffset, yOffset - tileSizeY}, color});
+            // Texture coordinates (assuming full texture mapping)
+            glm::vec2 texTopLeft = { x / float(TILEMAP_WIDTH), y / float(TILEMAP_HEIGHT) };
+            glm::vec2 texTopRight = { (x + 1) / float(TILEMAP_WIDTH), y / float(TILEMAP_HEIGHT) };
+            glm::vec2 texBottomLeft = { x / float(TILEMAP_WIDTH), (y + 1) / float(TILEMAP_HEIGHT) };
+            glm::vec2 texBottomRight = { (x + 1) / float(TILEMAP_WIDTH), (y + 1) / float(TILEMAP_HEIGHT) };
 
-            vertices.push_back({{xOffset + tileSizeX, yOffset}, color});
-            vertices.push_back({{xOffset + tileSizeX, yOffset - tileSizeY}, color});
-            vertices.push_back({{xOffset, yOffset - tileSizeY}, color});
+            // Define two triangles forming a tile with texture coordinates
+            vertices.push_back({{xOffset, yOffset}, texTopLeft});
+            vertices.push_back({{xOffset + tileSizeX, yOffset}, texTopRight});
+            vertices.push_back({{xOffset, yOffset - tileSizeY}, texBottomLeft});
+
+            vertices.push_back({{xOffset + tileSizeX, yOffset}, texTopRight});
+            vertices.push_back({{xOffset + tileSizeX, yOffset - tileSizeY}, texBottomRight});
+            vertices.push_back({{xOffset, yOffset - tileSizeY}, texBottomLeft});
         }
     }
 
-    std::cout << "✅ Tilemap Vertices with Colors Generated Successfully!\n";
+    std::cout << "✅ Tilemap Vertices with Texture Coordinates Generated Successfully!\n";
     return vertices;
 }
-
-
 
 void printWorkingDirectory() {
     char cwd[PATH_MAX];
@@ -248,8 +245,8 @@ class HelloTriangleApplication {
         vkGetPhysicalDeviceMemoryProperties(physicalDevice, &memProperties);
 
         for (uint32_t i = 0; i < memProperties.memoryTypeCount; i++) {
-            if ((typeFilter & (1 << i)) &&
-                (memProperties.memoryTypes[i].propertyFlags & properties) == properties) {
+            std::cout << "🔍 Checking Memory Type " << i << ": Flags=" << memProperties.memoryTypes[i].propertyFlags << std::endl;
+            if ((typeFilter & (1 << i)) && (memProperties.memoryTypes[i].propertyFlags & properties) == properties) {
                 return i;
             }
         }
@@ -257,53 +254,77 @@ class HelloTriangleApplication {
         throw std::runtime_error("❌ ERROR: Failed to find suitable memory type!");
     }
 
-    
+
+    const std::string TEXTURE_PATH = "/Users/colinleary/Downloads/RoomONE.ktx2";
     void loadTexture() {
+        std::cout << "🛠 Entering loadTexture()..." << std::endl;
+
         ktxTexture* texture;
-        KTX_error_code result = ktxTexture_CreateFromNamedFile(
-            "/Users/colinleary/Downloads/RoomONE.ktx2",  // Ensure this is the correct path
-            KTX_TEXTURE_CREATE_LOAD_IMAGE_DATA_BIT,
-            &texture
-        );
+        KTX_error_code result = ktxTexture_CreateFromNamedFile(TEXTURE_PATH.c_str(), KTX_TEXTURE_CREATE_LOAD_IMAGE_DATA_BIT, &texture);
 
         if (result != KTX_SUCCESS) {
-            throw std::runtime_error("❌ ERROR: Failed to load RoomONE.ktx2 texture");
+            std::cerr << "❌ ERROR: Failed to load KTX texture: " << TEXTURE_PATH << std::endl;
+            assert(false && "🔴 CRASH: Failed to load KTX texture!");
         }
 
-        textureWidth = texture->baseWidth;
-        textureHeight = texture->baseHeight;
+        std::cout << "✅ KTX Texture loaded successfully: " << TEXTURE_PATH << std::endl;
+        std::cout << "🔍 Texture Dimensions: " << texture->baseWidth << " x " << texture->baseHeight << std::endl;
 
-        VkDeviceSize imageSize = textureWidth * textureHeight * 4; // Assuming RGBA8
-
-        VkBuffer stagingBuffer;
-        VkDeviceMemory stagingBufferMemory;
-        createBuffer(imageSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-                     VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-                     stagingBuffer, stagingBufferMemory);
-
-        void* data;
-        vkMapMemory(device, stagingBufferMemory, 0, imageSize, 0, &data);
-        memcpy(data, texture->pData, static_cast<size_t>(imageSize));
-        vkUnmapMemory(device, stagingBufferMemory);
-
-        createImage(textureWidth, textureHeight, VK_FORMAT_R8G8B8A8_UNORM,
+        // Ensure Vulkan Image is created properly
+        createImage(texture->baseWidth, texture->baseHeight, VK_FORMAT_R8G8B8A8_UNORM,
                     VK_IMAGE_TILING_OPTIMAL, VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
                     VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, textureImage, textureImageMemory);
 
-        transitionImageLayout(textureImage, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
-        copyBufferToImage(stagingBuffer, textureImage, static_cast<uint32_t>(textureWidth), static_cast<uint32_t>(textureHeight));
-        transitionImageLayout(textureImage, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+        if (textureImage == VK_NULL_HANDLE) {
+            std::cerr << "❌ ERROR: textureImage is NULL after Vulkan image creation!" << std::endl;
+            assert(false && "🔴 CRASH: textureImage is NULL after createImage()");
+        }
 
-        vkDestroyBuffer(device, stagingBuffer, nullptr);
-        vkFreeMemory(device, stagingBufferMemory, nullptr);
+        std::cout << "✅ Vulkan Image Created for Texture!" << std::endl;
+
+        // **Bind Memory and Confirm**
+        vkBindImageMemory(device, textureImage, textureImageMemory, 0);
+
+        // Print the memory binding
+        VkMemoryRequirements memRequirements;
+        vkGetImageMemoryRequirements(device, textureImage, &memRequirements);
+        std::cout << "🔍 Bound Image Memory: Size = " << memRequirements.size
+                  << " | Alignment = " << memRequirements.alignment
+                  << " | Memory Type Bits = " << memRequirements.memoryTypeBits << std::endl;
+
+        ktxTexture_Destroy(texture);
     }
 
-    
     void createTextureImageView() {
+        std::cout << "🛠 Entering createTextureImageView()..." << std::endl;
+        std::cout << "🔍 textureImage: " << textureImage << std::endl;
+
+        if (textureImage == VK_NULL_HANDLE) {
+            std::cerr << "❌ ERROR: textureImage is NULL before creating textureImageView!" << std::endl;
+            assert(false && "🔴 CRASH: textureImage is NULL!");
+        }
+
+        // Print the Vulkan memory properties of textureImage
+        VkMemoryRequirements memRequirements;
+        vkGetImageMemoryRequirements(device, textureImage, &memRequirements);
+        std::cout << "🔍 Texture Image Memory Requirements: Size = " << memRequirements.size
+                  << " | Alignment = " << memRequirements.alignment
+                  << " | Memory Type Bits = " << memRequirements.memoryTypeBits << std::endl;
+
         textureImageView = createImageView(textureImage, VK_FORMAT_R8G8B8A8_UNORM);
+
+        if (textureImageView == VK_NULL_HANDLE) {
+            std::cerr << "❌ ERROR: textureImageView creation failed!" << std::endl;
+            assert(false && "🔴 CRASH: textureImageView creation failed!");
+        }
+
+        std::cout << "✅ textureImageView created successfully!" << std::endl;
     }
+
 
     void createTextureSampler() {
+        std::cout << "🛠 Entering createTextureSampler()..." << std::endl;
+
         VkSamplerCreateInfo samplerInfo{};
         samplerInfo.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
         samplerInfo.magFilter = VK_FILTER_LINEAR;
@@ -319,13 +340,73 @@ class HelloTriangleApplication {
         samplerInfo.compareOp = VK_COMPARE_OP_ALWAYS;
         samplerInfo.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
 
-        if (vkCreateSampler(device, &samplerInfo, nullptr, &textureSampler) != VK_SUCCESS) {
-            throw std::runtime_error("❌ ERROR: Failed to create Vulkan texture sampler");
+        VkResult result = vkCreateSampler(device, &samplerInfo, nullptr, &textureSampler);
+
+        if (result != VK_SUCCESS) {
+            std::cerr << "❌ ERROR: Failed to create Vulkan texture sampler! VkResult = "
+                      << result << " (" << getVkResultString(result) << ")" << std::endl;
+            assert(false && "🔴 CRASH: Failed to create Vulkan texture sampler!");
+        }
+
+        if (textureSampler == VK_NULL_HANDLE) {
+            std::cerr << "❌ ERROR: textureSampler is NULL after creation!" << std::endl;
+            assert(false && "🔴 CRASH: textureSampler is NULL after vkCreateSampler!");
+        } else {
+            std::cout << "✅ Vulkan Texture Sampler Created Successfully! Handle: "
+                      << textureSampler << std::endl;
         }
     }
 
-    
     void createDescriptorSet() {
+        std::cout << "🛠 Entering createDescriptorSet()..." << std::endl << std::flush;
+
+        // 🔍 Step 1: Ensure descriptorPool is created
+        std::cout << "🔍 Creating descriptor pool..." << std::endl << std::flush;
+        VkDescriptorPoolSize poolSize{};
+        poolSize.type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        poolSize.descriptorCount = 1;
+
+        VkDescriptorPoolCreateInfo poolInfo{};
+        poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+        poolInfo.poolSizeCount = 1;
+        poolInfo.pPoolSizes = &poolSize;
+        poolInfo.maxSets = 1;
+
+        VkResult poolResult = vkCreateDescriptorPool(device, &poolInfo, nullptr, &descriptorPool);
+        if (poolResult != VK_SUCCESS) {
+            std::cerr << "❌ ERROR: Failed to create descriptor pool! VkResult = " << poolResult << std::endl << std::flush;
+            assert(false && "🔴 CRASH: Failed to create descriptor pool!");
+        }
+
+        std::cout << "✅ Debug: descriptorPool successfully created: " << descriptorPool << std::endl << std::flush;
+
+        // 🔍 Step 2: Allocate Descriptor Set
+        std::cout << "🔍 Allocating descriptor set..." << std::endl << std::flush;
+        VkDescriptorSetAllocateInfo allocInfo{};
+        allocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+        allocInfo.descriptorPool = descriptorPool;
+        allocInfo.descriptorSetCount = 1;
+        allocInfo.pSetLayouts = &descriptorSetLayout;
+
+        VkResult allocResult = vkAllocateDescriptorSets(device, &allocInfo, &descriptorSet);
+        if (allocResult != VK_SUCCESS) {
+            std::cerr << "❌ ERROR: Failed to allocate descriptor set! VkResult = " << allocResult << std::endl << std::flush;
+            assert(false && "🔴 CRASH: Failed to allocate descriptor set!");
+        }
+
+        std::cout << "✅ Debug: descriptorSet successfully allocated: " << descriptorSet << std::endl << std::flush;
+
+        // 🔍 Step 3: Validate Texture Image View & Sampler
+        if (textureImageView == VK_NULL_HANDLE) {
+            std::cerr << "❌ ERROR: textureImageView is NULL before writing descriptor!" << std::endl << std::flush;
+            assert(false && "🔴 CRASH: textureImageView is NULL!");
+        }
+        if (textureSampler == VK_NULL_HANDLE) {
+            std::cerr << "❌ ERROR: textureSampler is NULL before writing descriptor!" << std::endl << std::flush;
+            assert(false && "🔴 CRASH: textureSampler is NULL!");
+        }
+
+        // 🔍 Step 4: Write Descriptor Set
         VkDescriptorImageInfo imageInfo{};
         imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
         imageInfo.imageView = textureImageView;
@@ -334,16 +415,23 @@ class HelloTriangleApplication {
         VkWriteDescriptorSet descriptorWrite{};
         descriptorWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
         descriptorWrite.dstSet = descriptorSet;
-        descriptorWrite.dstBinding = 1;
+        descriptorWrite.dstBinding = 0;  // Make sure this matches the shader binding!
         descriptorWrite.dstArrayElement = 0;
         descriptorWrite.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
         descriptorWrite.descriptorCount = 1;
         descriptorWrite.pImageInfo = &imageInfo;
 
+        if (descriptorSet == VK_NULL_HANDLE) {
+            std::cerr << "❌ descriptorSet is NULL before vkUpdateDescriptorSets!" << std::endl << std::flush;
+            assert(false && "🔴 CRASH: descriptorSet is NULL!");
+        }
+
+        std::cout << "🔍 Updating descriptor set..." << std::endl << std::flush;
         vkUpdateDescriptorSets(device, 1, &descriptorWrite, 0, nullptr);
+        std::cout << "✅ Descriptor set updated successfully!" << std::endl << std::flush;
     }
 
-    
+
     
     VkSemaphore imageAvailableSemaphore;
     VkSemaphore renderFinishedSemaphore;
@@ -443,14 +531,14 @@ class HelloTriangleApplication {
         // Position (vec2) -> Location 0
         attributeDescriptions[0].binding = 0;
         attributeDescriptions[0].location = 0;
-        attributeDescriptions[0].format = VK_FORMAT_R32G32_SFLOAT; // ✅ Matches vec2 in GLSL
+        attributeDescriptions[0].format = VK_FORMAT_R32G32_SFLOAT;
         attributeDescriptions[0].offset = offsetof(Vertex, pos);
 
-        // Color (vec3) -> Location 1
+        // Texture Coordinates (vec2) -> Location 1
         attributeDescriptions[1].binding = 0;
         attributeDescriptions[1].location = 1;
-        attributeDescriptions[1].format = VK_FORMAT_R32G32B32_SFLOAT; // ✅ Matches vec3 in GLSL
-        attributeDescriptions[1].offset = offsetof(Vertex, color);
+        attributeDescriptions[1].format = VK_FORMAT_R32G32_SFLOAT;
+        attributeDescriptions[1].offset = offsetof(Vertex, texCoord);
 
         return attributeDescriptions;
     }
@@ -466,6 +554,8 @@ public:
         cleanup();
     }
 private:
+    VkDescriptorPool descriptorPool;  // Declare descriptor pool
+    VkDescriptorSetLayout descriptorSetLayout;
     
     VkCommandBuffer beginSingleTimeCommands();
         void endSingleTimeCommands(VkCommandBuffer commandBuffer);
@@ -495,14 +585,29 @@ private:
     VkImageView createImageView(VkImage image, VkFormat format);
 
     
-    
-
-
-    
     void createFramebuffers() {
+        std::cout << "🔍 Entering createFramebuffers()..." << std::endl;
+
+        // Ensure we clear any previously allocated framebuffers
+        if (!swapChainFramebuffers.empty()) {
+            std::cout << "🧹 Cleaning up old framebuffers..." << std::endl;
+            for (auto framebuffer : swapChainFramebuffers) {
+                vkDestroyFramebuffer(device, framebuffer, nullptr);
+            }
+            swapChainFramebuffers.clear();
+        }
+
         swapChainFramebuffers.resize(swapChainImageViews.size());
+
+        std::cout << "🖼 Number of framebuffers to create: " << swapChainImageViews.size() << std::endl;
+
         for (size_t i = 0; i < swapChainImageViews.size(); i++) {
-            VkImageView attachments[] = {swapChainImageViews[i]};
+            std::cout << "🔄 Creating framebuffer " << i << "..." << std::endl;
+
+            VkImageView attachments[] = {
+                swapChainImageViews[i]
+            };
+
             VkFramebufferCreateInfo framebufferInfo{};
             framebufferInfo.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
             framebufferInfo.renderPass = renderPass;
@@ -511,12 +616,19 @@ private:
             framebufferInfo.width = swapChainExtent.width;
             framebufferInfo.height = swapChainExtent.height;
             framebufferInfo.layers = 1;
-            if (vkCreateFramebuffer(device, &framebufferInfo, nullptr, &swapChainFramebuffers[i]) != VK_SUCCESS) {
-                throw std::runtime_error("❌ ERROR: Failed to create framebuffer!");
+
+            VkResult result = vkCreateFramebuffer(device, &framebufferInfo, nullptr, &swapChainFramebuffers[i]);
+
+            if (result != VK_SUCCESS) {
+                throw std::runtime_error("❌ ERROR: Failed to create framebuffer " + std::to_string(i) + "!");
             }
+
+            std::cout << "✅ Framebuffer " << i << " successfully created! Handle: " << swapChainFramebuffers[i] << std::endl;
         }
-        std::cout << "✅ Framebuffers Created Successfully!" << std::endl;
+
+        std::cout << "✅ All framebuffers created successfully!" << std::endl;
     }
+
     
     void createCommandPool() {
         QueueFamilyIndices queueFamilyIndices = findQueueFamilies(physicalDevice);
@@ -530,6 +642,8 @@ private:
         }
     }
     void createCommandBuffers() {
+        
+        
         if (!commandBuffers.empty()) {
             vkFreeCommandBuffers(device, commandPool, static_cast<uint32_t>(commandBuffers.size()), commandBuffers.data());
         }
@@ -654,6 +768,7 @@ private:
     }
 
     void initVulkan() {
+        std::cout << "🛠 Entering initVulkan..." << std::endl;
         createInstance();
         setupDebugMessenger();
         createSurface();
@@ -662,19 +777,22 @@ private:
         createSwapChain();
         createImageViews();
         createRenderPass();
-        
         createPipelineLayout();
         createGraphicsPipeline();
-        
-        createFramebuffers();
-        createCommandPool();
-        createVertexBuffer();
-        loadTexture();  // 🟢 New function to load RoomONE.ktx2
+
+        std::cout << "🟡 Calling loadTexture() before descriptor set creation..." << std::endl;
+        loadTexture();
+
+        std::cout << "🔍 Calling createTextureImageView()..." << std::endl;
         createTextureImageView();
-        createTextureSampler();
-        createCommandBuffers();
-        createSyncObjects();
+
+        std::cout << "🔍 Calling createTextureSampler()..." << std::endl;
+        createTextureSampler();  // 🚀 Now ensuring it's called before createDescriptorSet()
+
+        std::cout << "🟡 BEFORE createDescriptorSet()" << std::endl;
+        createDescriptorSet();
     }
+
 
 
     void createRenderPass() {
@@ -713,30 +831,35 @@ private:
     }
     
     void createPipelineLayout() {
+        // Define the sampler descriptor layout binding
+        VkDescriptorSetLayoutBinding samplerLayoutBinding{};
+        samplerLayoutBinding.binding = 1;  // Matches the binding in the fragment shader
+        samplerLayoutBinding.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        samplerLayoutBinding.descriptorCount = 1;
+        samplerLayoutBinding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+        samplerLayoutBinding.pImmutableSamplers = nullptr;
+
+        // Define descriptor set layout creation
+        VkDescriptorSetLayoutCreateInfo layoutInfo{};
+        layoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+        layoutInfo.bindingCount = 1;
+        layoutInfo.pBindings = &samplerLayoutBinding;
+
+        if (vkCreateDescriptorSetLayout(device, &layoutInfo, nullptr, &descriptorSetLayout) != VK_SUCCESS) {
+            throw std::runtime_error("❌ ERROR: Failed to create descriptor set layout!");
+        }
+
+        // Define pipeline layout
         VkPipelineLayoutCreateInfo pipelineLayoutInfo{};
         pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-        pipelineLayoutInfo.setLayoutCount = 0;  // No descriptor sets
-        pipelineLayoutInfo.pSetLayouts = nullptr;
-        pipelineLayoutInfo.pushConstantRangeCount = 0;
-        pipelineLayoutInfo.pPushConstantRanges = nullptr;
+        pipelineLayoutInfo.setLayoutCount = 1;
+        pipelineLayoutInfo.pSetLayouts = &descriptorSetLayout;  // Use the descriptor set layout
 
-        std::cout << "🔍 Attempting to create Pipeline Layout..." << std::endl;
-
-        VkResult pipelineLayoutResult = vkCreatePipelineLayout(device, &pipelineLayoutInfo, nullptr, &pipelineLayout);
-
-        if (pipelineLayoutResult != VK_SUCCESS) {
-            std::cerr << "❌ ERROR: Failed to create pipeline layout! VkResult = "
-                      << pipelineLayoutResult << " (" << getVkResultString(pipelineLayoutResult) << ")"
-                      << std::endl;
-            throw std::runtime_error("Pipeline layout creation failed!");
-        }
-
-        if (pipelineLayout == VK_NULL_HANDLE) {
-            throw std::runtime_error("❌ ERROR: pipelineLayout is NULL after creation!");
-        } else {
-            std::cout << "✅ Pipeline Layout Created Successfully: " << pipelineLayout << std::endl;
+        if (vkCreatePipelineLayout(device, &pipelineLayoutInfo, nullptr, &pipelineLayout) != VK_SUCCESS) {
+            throw std::runtime_error("❌ ERROR: Failed to create pipeline layout!");
         }
     }
+
 
     // Function to convert VkResult to a human-readable string
     std::string getVkResultString(VkResult result) {
@@ -1275,10 +1398,11 @@ int main() {
 
 // Implementation of missing functions
 
-void HelloTriangleApplication::createImage(uint32_t width, uint32_t height, VkFormat format,
-                                           VkImageTiling tiling, VkImageUsageFlags usage,
-                                           VkMemoryPropertyFlags properties, VkImage& image,
-                                           VkDeviceMemory& imageMemory) {
+void HelloTriangleApplication::createImage(uint32_t width, uint32_t height, VkFormat format, VkImageTiling tiling,
+                 VkImageUsageFlags usage, VkMemoryPropertyFlags properties, VkImage& image, VkDeviceMemory& imageMemory) {
+
+    std::cout << "🛠 Creating Vulkan Image: " << width << "x" << height << std::endl;
+
     VkImageCreateInfo imageInfo{};
     imageInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
     imageInfo.imageType = VK_IMAGE_TYPE_2D;
@@ -1294,31 +1418,24 @@ void HelloTriangleApplication::createImage(uint32_t width, uint32_t height, VkFo
     imageInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
     imageInfo.samples = VK_SAMPLE_COUNT_1_BIT;
 
-    if (vkCreateImage(device, &imageInfo, nullptr, &image) != VK_SUCCESS) {
-        throw std::runtime_error("Failed to create image!");
+    VkResult result = vkCreateImage(device, &imageInfo, nullptr, &image);
+    if (result != VK_SUCCESS) {
+        std::cerr << "❌ ERROR: Failed to create Vulkan Image! VkResult = "
+                  << result << " (" << getVkResultString(result) << ")" << std::endl;
+        throw std::runtime_error("❌ Vulkan Image creation failed!");
     }
 
-    VkMemoryRequirements memRequirements;
-    vkGetImageMemoryRequirements(device, image, &memRequirements);
-
-    VkMemoryAllocateInfo allocInfo{};
-    allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
-    allocInfo.allocationSize = memRequirements.size;
-    allocInfo.memoryTypeIndex = findMemoryType(memRequirements.memoryTypeBits, properties);
-
-    if (vkAllocateMemory(device, &allocInfo, nullptr, &imageMemory) != VK_SUCCESS) {
-        throw std::runtime_error("Failed to allocate image memory!");
-    }
-
-    vkBindImageMemory(device, image, imageMemory, 0);
+    std::cout << "✅ Vulkan Image Created: " << image << std::endl;
 }
 
-void HelloTriangleApplication::transitionImageLayout(VkImage image, VkFormat format, VkImageLayout oldLayout, VkImageLayout newLayout) {
-    std::cout << "🔄 Transitioning image layout from " << oldLayout << " to " << newLayout << std::endl;
 
-    if (oldLayout == newLayout) {
-        throw std::runtime_error("❌ ERROR: Attempting to transition image to the same layout!");
+
+void HelloTriangleApplication::transitionImageLayout(VkImage image, VkFormat format, VkImageLayout oldLayout, VkImageLayout newLayout) {
+    if (image == VK_NULL_HANDLE) {
+        throw std::runtime_error("❌ ERROR: Trying to transition a NULL image!");
     }
+
+    std::cout << "🔄 Transitioning Image Layout from " << oldLayout << " to " << newLayout << std::endl;
 
     VkCommandBuffer commandBuffer = beginSingleTimeCommands();
 
@@ -1357,7 +1474,11 @@ void HelloTriangleApplication::transitionImageLayout(VkImage image, VkFormat for
     vkCmdPipelineBarrier(commandBuffer, sourceStage, destinationStage, 0, 0, nullptr, 0, nullptr, 1, &barrier);
 
     endSingleTimeCommands(commandBuffer);
+
+    std::cout << "✅ Image Layout Transitioned Successfully!" << std::endl;
 }
+
+
 
 void HelloTriangleApplication::copyBufferToImage(VkBuffer buffer, VkImage image,
                                                  uint32_t width, uint32_t height) {
@@ -1380,6 +1501,12 @@ void HelloTriangleApplication::copyBufferToImage(VkBuffer buffer, VkImage image,
 }
 
 VkImageView HelloTriangleApplication::createImageView(VkImage image, VkFormat format) {
+    if (image == VK_NULL_HANDLE) {
+        throw std::runtime_error("❌ ERROR: Attempting to create image view for NULL image!");
+    }
+
+    std::cout << "🔍 Creating Image View for Vulkan Image: " << image << std::endl;
+
     VkImageViewCreateInfo viewInfo{};
     viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
     viewInfo.image = image;
@@ -1392,18 +1519,23 @@ VkImageView HelloTriangleApplication::createImageView(VkImage image, VkFormat fo
     viewInfo.subresourceRange.layerCount = 1;
 
     VkImageView imageView;
-    if (vkCreateImageView(device, &viewInfo, nullptr, &imageView) != VK_SUCCESS) {
-        throw std::runtime_error("Failed to create texture image view!");
+    VkResult result = vkCreateImageView(device, &viewInfo, nullptr, &imageView);
+    if (result != VK_SUCCESS) {
+        std::cerr << "❌ ERROR: Failed to create Image View! VkResult = "
+                  << result << " (" << getVkResultString(result) << ")" << std::endl;
+        throw std::runtime_error("❌ ERROR: Image View creation failed!");
     }
 
+    std::cout << "✅ Image View Created: " << imageView << std::endl;
     return imageView;
 }
+
 
 VkCommandBuffer HelloTriangleApplication::beginSingleTimeCommands() {
     VkCommandBufferAllocateInfo allocInfo{};
     allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
     allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-    allocInfo.commandPool = commandPool;  // Ensure this is initialized
+    allocInfo.commandPool = commandPool;
     allocInfo.commandBufferCount = 1;
 
     VkCommandBuffer commandBuffer;
@@ -1413,12 +1545,18 @@ VkCommandBuffer HelloTriangleApplication::beginSingleTimeCommands() {
     beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
     beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
 
-    vkBeginCommandBuffer(commandBuffer, &beginInfo);
+    if (vkBeginCommandBuffer(commandBuffer, &beginInfo) != VK_SUCCESS) {
+        throw std::runtime_error("❌ ERROR: Failed to begin command buffer!");
+    }
+
     return commandBuffer;
 }
 
+
 void HelloTriangleApplication::endSingleTimeCommands(VkCommandBuffer commandBuffer) {
-    vkEndCommandBuffer(commandBuffer);
+    if (vkEndCommandBuffer(commandBuffer) != VK_SUCCESS) {
+        throw std::runtime_error("❌ ERROR: Failed to end command buffer!");
+    }
 
     VkSubmitInfo submitInfo{};
     submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
