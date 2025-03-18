@@ -28,7 +28,7 @@ struct Vertex {
 };
 
 
-
+/*
 const int TILEMAP_WIDTH = 32;
 const int TILEMAP_HEIGHT = 32;
 const std::string TILEMAP_PATH = "/Users/colinleary/Downloads/RoomOneNew_Cleaned (2).csv";
@@ -108,8 +108,10 @@ const std::vector<std::vector<int>> tilemap = {
     {1, 0, 0, 0, 0, 0, 0, 0, 0, 1},
     {1, 1, 1, 1, 1, 1, 1, 1, 1, 1}
 };
+ 
+ */
 #include <glm/glm.hpp>
-
+/*
 std::vector<Vertex> generateTilemapVertices(const std::vector<std::vector<int>>& tilemap) {
     std::vector<Vertex> vertices;
     
@@ -146,7 +148,7 @@ std::vector<Vertex> generateTilemapVertices(const std::vector<std::vector<int>>&
     std::cout << "✅ Tilemap Vertices with Texture Coordinates Generated Successfully!\n";
     return vertices;
 }
-
+*/
 void printWorkingDirectory() {
     char cwd[PATH_MAX];
     if (getcwd(cwd, sizeof(cwd)) != nullptr) {
@@ -502,7 +504,7 @@ class HelloTriangleApplication {
 
         vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0, 1, &descriptorSet, 0, nullptr);
 
-        vkCmdDraw(commandBuffer, static_cast<uint32_t>(tileVertices.size()), 1, 0, 0);
+        vkCmdDraw(commandBuffer, 4, 1, 0, 0);
 
         vkCmdEndRenderPass(commandBuffer);
 
@@ -806,11 +808,17 @@ private:
     void createVertexBuffer() {
         std::cout << "🛠 Entering createVertexBuffer()..." << std::endl;
 
-        std::vector<std::vector<int>> tilemap = loadTilemapCSV(TILEMAP_PATH);
-        tileVertices = generateTilemapVertices(tilemap);
+        // Define a fullscreen quad with texture coordinates
+        std::vector<Vertex> quadVertices = {
+            {{-1.0f, -1.0f}, {0.0f, 1.0f}},  // Bottom-left
+            {{1.0f, -1.0f}, {1.0f, 1.0f}},   // Bottom-right
+            {{-1.0f, 1.0f}, {0.0f, 0.0f}},   // Top-left
+            {{1.0f, 1.0f}, {1.0f, 0.0f}},    // Top-right
+        };
 
-        VkDeviceSize bufferSize = sizeof(tileVertices[0]) * tileVertices.size();
+        VkDeviceSize bufferSize = sizeof(quadVertices[0]) * quadVertices.size();
 
+        // Create Vulkan buffer
         VkBufferCreateInfo bufferInfo{};
         bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
         bufferInfo.size = bufferSize;
@@ -845,22 +853,20 @@ private:
 
         vkBindBufferMemory(device, vertexBuffer, vertexBufferMemory, 0);
 
-        // Check if vertexBuffer is still valid
         if (vertexBuffer == VK_NULL_HANDLE) {
             throw std::runtime_error("❌ ERROR: vertexBuffer is NULL after binding!");
         }
 
         std::cout << "✅ vertexBuffer Memory Bound Successfully!\n";
 
-        // Copy data to buffer
+        // Copy vertex data to buffer memory
         void* data;
         vkMapMemory(device, vertexBufferMemory, 0, bufferSize, 0, &data);
-        memcpy(data, tileVertices.data(), (size_t) bufferSize);
+        memcpy(data, quadVertices.data(), (size_t) bufferSize);  // 🔹 Copy quad vertices into Vulkan memory
         vkUnmapMemory(device, vertexBufferMemory);
 
-        std::cout << "✅ Vulkan Vertex Buffer Updated Successfully!\n";
+        std::cout << "✅ Vulkan Vertex Buffer Updated Successfully with Fullscreen Quad!\n";
     }
-
 
     void initVulkan() {
         std::cout << "🛠 Entering initVulkan..." << std::endl;
