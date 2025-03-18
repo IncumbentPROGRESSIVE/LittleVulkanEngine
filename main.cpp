@@ -461,11 +461,23 @@ class HelloTriangleApplication {
     
     void drawFrame() {
         vkQueueWaitIdle(graphicsQueue);
+
         uint32_t imageIndex;
         VkResult result = vkAcquireNextImageKHR(device, swapChain, UINT64_MAX, imageAvailableSemaphore, VK_NULL_HANDLE, &imageIndex);
+        
         if (result != VK_SUCCESS) {
             throw std::runtime_error("ERROR: Failed to acquire swapchain image!");
         }
+
+        std::cout << "🔍 Acquired image index: " << imageIndex << std::endl;
+
+        // 🚨 Extra check to prevent crashes
+        if (imageIndex >= commandBuffers.size() || commandBuffers[imageIndex] == VK_NULL_HANDLE) {
+            throw std::runtime_error("❌ ERROR: commandBuffers[" + std::to_string(imageIndex) + "] is NULL or out of range!");
+        }
+
+        std::cout << "✅ commandBuffer for this image: " << commandBuffers[imageIndex] << std::endl;
+
         VkSubmitInfo submitInfo{};
         submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
         submitInfo.waitSemaphoreCount = 1;
@@ -478,9 +490,11 @@ class HelloTriangleApplication {
         submitInfo.signalSemaphoreCount = 1;
         VkSemaphore signalSemaphores[] = {renderFinishedSemaphore};
         submitInfo.pSignalSemaphores = signalSemaphores;
+
         if (vkQueueSubmit(graphicsQueue, 1, &submitInfo, VK_NULL_HANDLE) != VK_SUCCESS) {
             throw std::runtime_error("ERROR: Failed to submit draw command buffer!");
         }
+
         VkPresentInfoKHR presentInfo{};
         presentInfo.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
         presentInfo.waitSemaphoreCount = 1;
@@ -488,11 +502,13 @@ class HelloTriangleApplication {
         presentInfo.swapchainCount = 1;
         presentInfo.pSwapchains = &swapChain;
         presentInfo.pImageIndices = &imageIndex;
+
         VkResult presentResult = vkQueuePresentKHR(presentQueue, &presentInfo);
         if (presentResult != VK_SUCCESS) {
             throw std::runtime_error("ERROR: vkQueuePresentKHR failed!");
         }
     }
+
     VkShaderModule createShaderModule(const std::vector<char>& code) {
         VkShaderModuleCreateInfo createInfo{};
         createInfo.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
@@ -658,12 +674,15 @@ private:
         }
     }
     void createCommandBuffers() {
-        
-        
+        std::cout << "🛠 Entering createCommandBuffers()...\n";
+
+        // Ensure previous command buffers are freed
         if (!commandBuffers.empty()) {
+            std::cout << "🗑 Freeing existing command buffers...\n";
             vkFreeCommandBuffers(device, commandPool, static_cast<uint32_t>(commandBuffers.size()), commandBuffers.data());
         }
 
+        // **Ensure we have the right number of command buffers**
         commandBuffers.resize(swapChainFramebuffers.size());
 
         VkCommandBufferAllocateInfo allocInfo{};
@@ -672,10 +691,15 @@ private:
         allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
         allocInfo.commandBufferCount = static_cast<uint32_t>(commandBuffers.size());
 
-        if (vkAllocateCommandBuffers(device, &allocInfo, commandBuffers.data()) != VK_SUCCESS) {
-            throw std::runtime_error("ERROR: Failed to allocate command buffers!");
+        // **Allocate command buffers**
+        VkResult result = vkAllocateCommandBuffers(device, &allocInfo, commandBuffers.data());
+        if (result != VK_SUCCESS) {
+            throw std::runtime_error("❌ ERROR: Failed to allocate command buffers!");
         }
 
+        std::cout << "✅ Command buffers allocated successfully!\n";
+
+        // **Record commands for each buffer**
         for (size_t i = 0; i < commandBuffers.size(); i++) {
             VkCommandBufferBeginInfo beginInfo{};
             beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
@@ -692,7 +716,7 @@ private:
             renderPassInfo.renderArea.offset = {0, 0};
             renderPassInfo.renderArea.extent = swapChainExtent;
 
-            VkClearValue clearColor = {{{0.0f, 0.0f, 0.0f, 1.0f}}};  // Background is now black
+            VkClearValue clearColor = {{{0.0f, 0.0f, 0.0f, 1.0f}}};  // Black background
             renderPassInfo.clearValueCount = 1;
             renderPassInfo.pClearValues = &clearColor;
 
@@ -703,7 +727,7 @@ private:
             VkDeviceSize offsets[] = {0};
             vkCmdBindVertexBuffers(commandBuffers[i], 0, 1, vertexBuffers, offsets);
 
-            std::cout << "🟢 Drawing " << tileVertices.size() << " vertices." << std::endl;
+            std::cout << "🟢 Recording draw call for buffer " << i << "...\n";
             vkCmdDraw(commandBuffers[i], static_cast<uint32_t>(tileVertices.size()), 1, 0, 0);
 
             vkCmdEndRenderPass(commandBuffers[i]);
@@ -711,11 +735,10 @@ private:
             if (vkEndCommandBuffer(commandBuffers[i]) != VK_SUCCESS) {
                 throw std::runtime_error("ERROR: Failed to record command buffer!");
             }
+
+            std::cout << "✅ Command buffer " << i << " recorded successfully!\n";
         }
     }
-    
-    
-
 
     VkRenderPass renderPass;
     GLFWwindow* window;
@@ -803,11 +826,15 @@ private:
         createTextureImageView();
 
         std::cout << "🔍 Calling createTextureSampler()..." << std::endl;
-        createTextureSampler();  // 🚀 Now ensuring it's called before createDescriptorSet()
+        createTextureSampler();
 
         std::cout << "🟡 BEFORE createDescriptorSet()" << std::endl;
         createDescriptorSet();
+
+        std::cout << "🔍 Calling createCommandBuffers()...\n";
+        createCommandBuffers();  // ✅ Ensure command buffers are created before use!
     }
+
 
 
 
@@ -1161,6 +1188,7 @@ private:
         std::vector<VkDeviceQueueCreateInfo> queueCreateInfos;
         std::set<uint32_t> uniqueQueueFamilies = {indices.graphicsFamily.value(), indices.presentFamily.value()};
         float queuePriority = 1.0f;
+        
         for (uint32_t queueFamily : uniqueQueueFamilies) {
             VkDeviceQueueCreateInfo queueCreateInfo{};
             queueCreateInfo.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
@@ -1169,6 +1197,7 @@ private:
             queueCreateInfo.pQueuePriorities = &queuePriority;
             queueCreateInfos.push_back(queueCreateInfo);
         }
+
         VkPhysicalDeviceFeatures deviceFeatures{};
         VkDeviceCreateInfo createInfo{};
         createInfo.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
@@ -1177,21 +1206,29 @@ private:
         createInfo.pEnabledFeatures = &deviceFeatures;
         createInfo.enabledExtensionCount = static_cast<uint32_t>(deviceExtensions.size());
         createInfo.ppEnabledExtensionNames = deviceExtensions.data();
+
         if (enableValidationLayers) {
             createInfo.enabledLayerCount = static_cast<uint32_t>(validationLayers.size());
             createInfo.ppEnabledLayerNames = validationLayers.data();
         } else {
             createInfo.enabledLayerCount = 0;
         }
+
         if (vkCreateDevice(physicalDevice, &createInfo, nullptr, &device) != VK_SUCCESS) {
             throw std::runtime_error("ERROR: Failed to create logical device!");
         }
+
         vkGetDeviceQueue(device, indices.graphicsFamily.value(), 0, &graphicsQueue);
         vkGetDeviceQueue(device, indices.presentFamily.value(), 0, &presentQueue);
-        if (!graphicsQueue || !presentQueue) {
-            throw std::runtime_error("ERROR: Graphics or Present queue was not retrieved correctly!");
+
+        if (graphicsQueue == VK_NULL_HANDLE || presentQueue == VK_NULL_HANDLE) {
+            throw std::runtime_error("❌ ERROR: Failed to retrieve graphics or present queue!");
         }
+
+        std::cout << "✅ graphicsQueue assigned: " << graphicsQueue << std::endl;
+        std::cout << "✅ presentQueue assigned: " << presentQueue << std::endl;
     }
+
     void createSwapChain() {
         SwapChainSupportDetails swapChainSupport = querySwapChainSupport(physicalDevice);
         VkSurfaceFormatKHR surfaceFormat = chooseSwapSurfaceFormat(swapChainSupport.formats);
