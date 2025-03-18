@@ -620,15 +620,16 @@ private:
 
     
     void createFramebuffers() {
-        std::cout << "🛠 Entering createFramebuffers()..." << std::endl;
+        std::cout << "🛠 Entering createFramebuffers()...\n";
 
         if (!swapChainFramebuffers.empty()) {
-            std::cout << "🗑 Destroying existing framebuffers..." << std::endl;
+            std::cout << "🗑 Destroying existing framebuffers...\n";
             for (auto framebuffer : swapChainFramebuffers) {
                 vkDestroyFramebuffer(device, framebuffer, nullptr);
             }
         }
 
+        // ✅ Resize swapChainFramebuffers to match swapChainImageViews
         swapChainFramebuffers.resize(swapChainImageViews.size(), VK_NULL_HANDLE);
         std::cout << "🔍 Resized swapChainFramebuffers to " << swapChainFramebuffers.size() << " entries.\n";
 
@@ -652,8 +653,6 @@ private:
         }
     }
 
-
-    
     void createCommandPool() {
         QueueFamilyIndices queueFamilyIndices = findQueueFamilies(physicalDevice);
         VkCommandPoolCreateInfo poolInfo{};
@@ -666,17 +665,21 @@ private:
         }
     }
     void createCommandBuffers() {
-        std::cout << "🛠 Entering createCommandBuffers()..." << std::endl;
+        std::cout << "🛠 Entering createCommandBuffers()...\n";
 
-        // Ensure previous command buffers are freed if they exist
+        // 🚨 Check if swapChainFramebuffers exist before proceeding
+        if (swapChainFramebuffers.empty()) {
+            throw std::runtime_error("❌ ERROR: No swapChainFramebuffers available! Cannot create command buffers.");
+        }
+
+        // Free any previously allocated command buffers
         if (!commandBuffers.empty()) {
             std::cout << "🗑 Freeing existing command buffers...\n";
             vkFreeCommandBuffers(device, commandPool, static_cast<uint32_t>(commandBuffers.size()), commandBuffers.data());
         }
 
-        // Resize commandBuffers based on the swap chain framebuffer count
+        // ✅ Resize commandBuffers based on swapChainFramebuffers size
         commandBuffers.resize(swapChainFramebuffers.size(), VK_NULL_HANDLE);
-
         std::cout << "🔍 Resized commandBuffers to " << commandBuffers.size() << " entries.\n";
 
         VkCommandBufferAllocateInfo allocInfo{};
@@ -685,22 +688,13 @@ private:
         allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
         allocInfo.commandBufferCount = static_cast<uint32_t>(commandBuffers.size());
 
-        // Allocate command buffers
         VkResult result = vkAllocateCommandBuffers(device, &allocInfo, commandBuffers.data());
         if (result != VK_SUCCESS) {
             throw std::runtime_error("❌ ERROR: Failed to allocate command buffers!");
         }
 
         std::cout << "✅ Command buffers allocated successfully! Count: " << commandBuffers.size() << "\n";
-
-        // Ensure all buffers are initialized
-        for (size_t i = 0; i < commandBuffers.size(); i++) {
-            if (commandBuffers[i] == VK_NULL_HANDLE) {
-                throw std::runtime_error("❌ ERROR: commandBuffers[" + std::to_string(i) + "] is NULL after allocation!");
-            }
-        }
     }
-
 
     VkRenderPass renderPass;
     GLFWwindow* window;
@@ -794,6 +788,7 @@ private:
         createDescriptorSet();
 
         std::cout << "🔍 Calling createCommandBuffers()...\n";
+        createFramebuffers();
         createCommandBuffers();  // ✅ Ensure command buffers are created before use!
     }
 
