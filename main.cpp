@@ -27,6 +27,8 @@ struct Vertex {
     glm::vec2 texCoord; // Texture Coordinates (u, v)
 };
 
+
+
 const int TILEMAP_WIDTH = 32;
 const int TILEMAP_HEIGHT = 32;
 const std::string TILEMAP_PATH = "/Users/colinleary/Downloads/RoomOneNew_Cleaned (2).csv";
@@ -459,26 +461,67 @@ class HelloTriangleApplication {
         }
     }
     
-    void drawFrame() {
-        vkQueueWaitIdle(graphicsQueue);
+    void recordCommandBuffer(VkCommandBuffer commandBuffer, uint32_t imageIndex) {
+        VkCommandBufferBeginInfo beginInfo{};
+        beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
 
+        if (vkBeginCommandBuffer(commandBuffer, &beginInfo) != VK_SUCCESS) {
+            throw std::runtime_error("❌ ERROR: Failed to begin recording command buffer!");
+        }
+
+        VkRenderPassBeginInfo renderPassInfo{};
+        renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+        renderPassInfo.renderPass = renderPass;
+        renderPassInfo.framebuffer = swapChainFramebuffers[imageIndex];
+        renderPassInfo.renderArea.offset = {0, 0};
+        renderPassInfo.renderArea.extent = swapChainExtent;
+
+        VkClearValue clearColor = {{{0.0f, 0.0f, 0.0f, 1.0f}}};
+        renderPassInfo.clearValueCount = 1;
+        renderPassInfo.pClearValues = &clearColor;
+
+        vkCmdBeginRenderPass(commandBuffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
+        vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, graphicsPipeline);
+
+        // ✅ Ensure vertexBuffer is valid before binding
+        if (vertexBuffer == VK_NULL_HANDLE) {
+            throw std::runtime_error("❌ ERROR: vertexBuffer is NULL before binding!");
+        }
+
+        std::cout << "🔍 Binding Vertex Buffer: " << vertexBuffer << std::endl;
+
+        VkBuffer vertexBuffers[] = {vertexBuffer};
+        VkDeviceSize offsets[] = {0};
+
+        vkCmdBindVertexBuffers(commandBuffer, 0, 1, vertexBuffers, offsets);
+
+        // ✅ Ensure descriptorSet is valid before binding
+        if (descriptorSet == VK_NULL_HANDLE) {
+            throw std::runtime_error("❌ ERROR: descriptorSet is NULL before binding!");
+        }
+
+        vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0, 1, &descriptorSet, 0, nullptr);
+
+        vkCmdDraw(commandBuffer, static_cast<uint32_t>(tileVertices.size()), 1, 0, 0);
+
+        vkCmdEndRenderPass(commandBuffer);
+
+        if (vkEndCommandBuffer(commandBuffer) != VK_SUCCESS) {
+            throw std::runtime_error("❌ ERROR: Failed to record command buffer!");
+        }
+    }
+
+
+    void drawFrame() {
         uint32_t imageIndex;
         VkResult result = vkAcquireNextImageKHR(device, swapChain, UINT64_MAX, imageAvailableSemaphore, VK_NULL_HANDLE, &imageIndex);
-        
+
         if (result != VK_SUCCESS) {
-            throw std::runtime_error("ERROR: Failed to acquire swapchain image!");
+            throw std::runtime_error("❌ ERROR: Failed to acquire swap chain image!");
         }
 
-        std::cout << "🔍 Acquired image index: " << imageIndex << std::endl;
-
-        // 🚨 Extra check to prevent crashes
-        if (imageIndex >= commandBuffers.size() || commandBuffers[imageIndex] == VK_NULL_HANDLE) {
-            std::cerr << "❌ ERROR: commandBuffers[" << imageIndex << "] is NULL or out of range!\n";
-            std::cerr << "🔍 Command Buffers Count: " << commandBuffers.size() << std::endl;
-            throw std::runtime_error("❌ ERROR: Invalid command buffer index!");
-        }
-
-        std::cout << "✅ commandBuffer for this image: " << commandBuffers[imageIndex] << std::endl;
+        // 🛠 **Record the command buffer before submitting**
+        recordCommandBuffer(commandBuffers[imageIndex], imageIndex);
 
         VkSubmitInfo submitInfo{};
         submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
@@ -489,12 +532,16 @@ class HelloTriangleApplication {
         submitInfo.pWaitDstStageMask = waitStages;
         submitInfo.commandBufferCount = 1;
         submitInfo.pCommandBuffers = &commandBuffers[imageIndex];
-        submitInfo.signalSemaphoreCount = 1;
         VkSemaphore signalSemaphores[] = {renderFinishedSemaphore};
+        submitInfo.signalSemaphoreCount = 1;
         submitInfo.pSignalSemaphores = signalSemaphores;
 
+        if (graphicsQueue == VK_NULL_HANDLE) {
+            throw std::runtime_error("❌ ERROR: graphicsQueue is NULL before submission!");
+        }
+
         if (vkQueueSubmit(graphicsQueue, 1, &submitInfo, VK_NULL_HANDLE) != VK_SUCCESS) {
-            throw std::runtime_error("ERROR: Failed to submit draw command buffer!");
+            throw std::runtime_error("❌ ERROR: Failed to submit draw command buffer!");
         }
 
         VkPresentInfoKHR presentInfo{};
@@ -505,11 +552,9 @@ class HelloTriangleApplication {
         presentInfo.pSwapchains = &swapChain;
         presentInfo.pImageIndices = &imageIndex;
 
-        VkResult presentResult = vkQueuePresentKHR(presentQueue, &presentInfo);
-        if (presentResult != VK_SUCCESS) {
-            throw std::runtime_error("ERROR: vkQueuePresentKHR failed!");
-        }
+        vkQueuePresentKHR(presentQueue, &presentInfo);
     }
+
 
     VkShaderModule createShaderModule(const std::vector<char>& code) {
         VkShaderModuleCreateInfo createInfo{};
@@ -619,6 +664,19 @@ private:
     VkImageView createImageView(VkImage image, VkFormat format);
 
     
+    void copyBuffer(VkBuffer srcBuffer, VkBuffer dstBuffer, VkDeviceSize size) {
+        VkCommandBuffer commandBuffer = beginSingleTimeCommands();
+
+        VkBufferCopy copyRegion{};
+        copyRegion.srcOffset = 0;
+        copyRegion.dstOffset = 0;
+        copyRegion.size = size;
+        vkCmdCopyBuffer(commandBuffer, srcBuffer, dstBuffer, 1, &copyRegion);
+
+        endSingleTimeCommands(commandBuffer);
+    }
+
+    
     void createFramebuffers() {
         std::cout << "🛠 Entering createFramebuffers()...\n";
 
@@ -627,9 +685,9 @@ private:
             for (auto framebuffer : swapChainFramebuffers) {
                 vkDestroyFramebuffer(device, framebuffer, nullptr);
             }
+            swapChainFramebuffers.clear();
         }
 
-        // ✅ Resize swapChainFramebuffers to match swapChainImageViews
         swapChainFramebuffers.resize(swapChainImageViews.size(), VK_NULL_HANDLE);
         std::cout << "🔍 Resized swapChainFramebuffers to " << swapChainFramebuffers.size() << " entries.\n";
 
@@ -645,7 +703,8 @@ private:
             framebufferInfo.height = swapChainExtent.height;
             framebufferInfo.layers = 1;
 
-            if (vkCreateFramebuffer(device, &framebufferInfo, nullptr, &swapChainFramebuffers[i]) != VK_SUCCESS) {
+            VkResult result = vkCreateFramebuffer(device, &framebufferInfo, nullptr, &swapChainFramebuffers[i]);
+            if (result != VK_SUCCESS) {
                 throw std::runtime_error("❌ ERROR: Failed to create framebuffer " + std::to_string(i) + "!");
             }
 
@@ -655,31 +714,48 @@ private:
 
     void createCommandPool() {
         QueueFamilyIndices queueFamilyIndices = findQueueFamilies(physicalDevice);
+
+        if (!queueFamilyIndices.graphicsFamily.has_value()) {
+            throw std::runtime_error("❌ ERROR: No valid graphics queue family found!");
+        }
+
         VkCommandPoolCreateInfo poolInfo{};
         poolInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
         poolInfo.queueFamilyIndex = queueFamilyIndices.graphicsFamily.value();
         poolInfo.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
+
         VkResult result = vkCreateCommandPool(device, &poolInfo, nullptr, &commandPool);
+        
         if (result != VK_SUCCESS) {
-            throw std::runtime_error("❌ ERROR: Failed to create command pool!");
+            throw std::runtime_error("❌ ERROR: Failed to create command pool! VkResult: " + std::to_string(result));
         }
+
+        if (commandPool == VK_NULL_HANDLE) {
+            throw std::runtime_error("❌ ERROR: commandPool is NULL after creation!");
+        }
+
+        std::cout << "✅ Command Pool Created Successfully!\n";
     }
+
+
     void createCommandBuffers() {
         std::cout << "🛠 Entering createCommandBuffers()...\n";
 
-        // 🚨 Check if swapChainFramebuffers exist before proceeding
         if (swapChainFramebuffers.empty()) {
             throw std::runtime_error("❌ ERROR: No swapChainFramebuffers available! Cannot create command buffers.");
         }
 
-        // Free any previously allocated command buffers
+        if (commandPool == VK_NULL_HANDLE) {
+            throw std::runtime_error("❌ ERROR: commandPool is NULL before allocating command buffers!");
+        }
+
+        // Free existing command buffers (if any)
         if (!commandBuffers.empty()) {
             std::cout << "🗑 Freeing existing command buffers...\n";
             vkFreeCommandBuffers(device, commandPool, static_cast<uint32_t>(commandBuffers.size()), commandBuffers.data());
         }
 
-        // ✅ Resize commandBuffers based on swapChainFramebuffers size
-        commandBuffers.resize(swapChainFramebuffers.size(), VK_NULL_HANDLE);
+        commandBuffers.resize(swapChainFramebuffers.size());
         std::cout << "🔍 Resized commandBuffers to " << commandBuffers.size() << " entries.\n";
 
         VkCommandBufferAllocateInfo allocInfo{};
@@ -688,13 +764,19 @@ private:
         allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
         allocInfo.commandBufferCount = static_cast<uint32_t>(commandBuffers.size());
 
+        std::cout << "🔍 Allocating " << allocInfo.commandBufferCount << " command buffers...\n";
+
         VkResult result = vkAllocateCommandBuffers(device, &allocInfo, commandBuffers.data());
+
         if (result != VK_SUCCESS) {
+            std::cerr << "❌ ERROR: vkAllocateCommandBuffers failed! VkResult = " << result << "\n";
             throw std::runtime_error("❌ ERROR: Failed to allocate command buffers!");
         }
 
         std::cout << "✅ Command buffers allocated successfully! Count: " << commandBuffers.size() << "\n";
     }
+
+
 
     VkRenderPass renderPass;
     GLFWwindow* window;
@@ -722,9 +804,11 @@ private:
     
     std::vector<Vertex> tileVertices; // Store tile vertices globally in the class
     void createVertexBuffer() {
+        std::cout << "🛠 Entering createVertexBuffer()..." << std::endl;
+
         std::vector<std::vector<int>> tilemap = loadTilemapCSV(TILEMAP_PATH);
         tileVertices = generateTilemapVertices(tilemap);
-        
+
         VkDeviceSize bufferSize = sizeof(tileVertices[0]) * tileVertices.size();
 
         VkBufferCreateInfo bufferInfo{};
@@ -733,9 +817,13 @@ private:
         bufferInfo.usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
         bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
 
-        if (vkCreateBuffer(device, &bufferInfo, nullptr, &vertexBuffer) != VK_SUCCESS) {
+        VkResult bufferResult = vkCreateBuffer(device, &bufferInfo, nullptr, &vertexBuffer);
+        if (bufferResult != VK_SUCCESS) {
+            std::cerr << "❌ ERROR: Failed to create vertex buffer! VkResult: " << bufferResult << std::endl;
             throw std::runtime_error("❌ ERROR: Failed to create vertex buffer!");
         }
+
+        std::cout << "✅ vertexBuffer Created: " << vertexBuffer << std::endl;
 
         VkMemoryRequirements memRequirements;
         vkGetBufferMemoryRequirements(device, vertexBuffer, &memRequirements);
@@ -747,11 +835,22 @@ private:
                                                    VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
                                                    VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
 
-        if (vkAllocateMemory(device, &allocInfo, nullptr, &vertexBufferMemory) != VK_SUCCESS) {
+        VkResult allocResult = vkAllocateMemory(device, &allocInfo, nullptr, &vertexBufferMemory);
+        if (allocResult != VK_SUCCESS) {
+            std::cerr << "❌ ERROR: Failed to allocate vertex buffer memory! VkResult: " << allocResult << std::endl;
             throw std::runtime_error("❌ ERROR: Failed to allocate vertex buffer memory!");
         }
 
+        std::cout << "✅ vertexBufferMemory Allocated: " << vertexBufferMemory << std::endl;
+
         vkBindBufferMemory(device, vertexBuffer, vertexBufferMemory, 0);
+
+        // Check if vertexBuffer is still valid
+        if (vertexBuffer == VK_NULL_HANDLE) {
+            throw std::runtime_error("❌ ERROR: vertexBuffer is NULL after binding!");
+        }
+
+        std::cout << "✅ vertexBuffer Memory Bound Successfully!\n";
 
         // Copy data to buffer
         void* data;
@@ -762,8 +861,10 @@ private:
         std::cout << "✅ Vulkan Vertex Buffer Updated Successfully!\n";
     }
 
+
     void initVulkan() {
         std::cout << "🛠 Entering initVulkan..." << std::endl;
+        
         createInstance();
         setupDebugMessenger();
         createSurface();
@@ -787,13 +888,22 @@ private:
         std::cout << "🟡 BEFORE createDescriptorSet()" << std::endl;
         createDescriptorSet();
 
+        std::cout << "🟡 Calling createVertexBuffer()..." << std::endl;
+        createVertexBuffer();  // ✅ MAKE SURE THIS FUNCTION IS CALLED
+
         std::cout << "🔍 Calling createCommandBuffers()...\n";
         createFramebuffers();
-        createCommandBuffers();  // ✅ Ensure command buffers are created before use!
+        createCommandPool();
+
+        if (commandPool == VK_NULL_HANDLE) {
+            throw std::runtime_error("❌ ERROR: commandPool was not created! Did createCommandPool() run?");
+        }
+
+        createCommandBuffers();  // ✅ Ensure command buffers are created after vertex buffer is set up
+
+        std::cout << "🔍 Creating synchronization objects...\n";
+        createSyncObjects();
     }
-
-
-
 
     void createRenderPass() {
         VkAttachmentDescription colorAttachment{};
@@ -889,46 +999,41 @@ private:
 
 
     void createGraphicsPipeline() {
-        // Destroy existing pipeline if it exists
+        VkVertexInputBindingDescription bindingDescription = getBindingDescription();
+        std::array<VkVertexInputAttributeDescription, 2> attributeDescriptions = getAttributeDescriptions();
+
+        VkPipelineVertexInputStateCreateInfo vertexInputInfo{};
+        vertexInputInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
+        vertexInputInfo.vertexBindingDescriptionCount = 1;
+        vertexInputInfo.pVertexBindingDescriptions = &bindingDescription; // Now valid
+        vertexInputInfo.vertexAttributeDescriptionCount = static_cast<uint32_t>(attributeDescriptions.size());
+        vertexInputInfo.pVertexAttributeDescriptions = attributeDescriptions.data();
+
+        std::cout << "🛠 Entering createGraphicsPipeline()...\n";
+
         if (graphicsPipeline != VK_NULL_HANDLE) {
-            std::cout << "🛑 Destroying old graphics pipeline before recreation..." << std::endl;
+            std::cout << "🗑 Destroying old graphics pipeline before recreation...\n";
             vkDestroyPipeline(device, graphicsPipeline, nullptr);
             graphicsPipeline = VK_NULL_HANDLE;
         }
 
-        // Load Shader Files
         std::string vertShaderPath = "/Users/colinleary/desktop/VulkanSDK/LittleVulkanEngine/shaders/triangle.vert.spv";
         std::string fragShaderPath = "/Users/colinleary/desktop/VulkanSDK/LittleVulkanEngine/shaders/triangle.frag.spv";
 
-        std::cout << "Loading Vertex Shader: " << vertShaderPath << std::endl;
-        std::cout << "Loading Fragment Shader: " << fragShaderPath << std::endl;
+        std::cout << "🔍 Loading Vertex Shader: " << vertShaderPath << "\n";
+        std::cout << "🔍 Loading Fragment Shader: " << fragShaderPath << "\n";
 
         auto vertShaderCode = readFile(vertShaderPath);
         auto fragShaderCode = readFile(fragShaderPath);
 
-        std::cout << "Vertex Shader Size: " << vertShaderCode.size() << " bytes" << std::endl;
-        std::cout << "Fragment Shader Size: " << fragShaderCode.size() << " bytes" << std::endl;
+        std::cout << "Vertex Shader Size: " << vertShaderCode.size() << " bytes\n";
+        std::cout << "Fragment Shader Size: " << fragShaderCode.size() << " bytes\n";
 
-        // Create Shader Modules
         VkShaderModule vertShaderModule = createShaderModule(vertShaderCode);
         VkShaderModule fragShaderModule = createShaderModule(fragShaderCode);
 
-        std::cout << "🔍 Debugging Graphics Pipeline Creation...\n";
-        std::cout << "🟢 Device: " << device << "\n";
-        std::cout << "🟢 Pipeline Layout: " << pipelineLayout << "\n";
-        std::cout << "🟢 Render Pass: " << renderPass << "\n";
-        std::cout << "🟢 Vertex Shader Module: " << vertShaderModule << "\n";
-        std::cout << "🟢 Fragment Shader Module: " << fragShaderModule << "\n";
-
-        // Safety Checks Before Vulkan Call
-        if (!vertShaderModule || !fragShaderModule) {
-            throw std::runtime_error("❌ Shader modules were not created successfully!");
-        }
-        if (!renderPass) {
-            throw std::runtime_error("❌ Render pass was not created successfully!");
-        }
-        if (!pipelineLayout) {
-            throw std::runtime_error("❌ Pipeline layout was not created successfully!");
+        if (vertShaderModule == VK_NULL_HANDLE || fragShaderModule == VK_NULL_HANDLE) {
+            throw std::runtime_error("❌ ERROR: Shader modules were not created successfully!");
         }
 
         VkPipelineShaderStageCreateInfo shaderStages[] = {
@@ -936,36 +1041,20 @@ private:
             {VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO, nullptr, 0, VK_SHADER_STAGE_FRAGMENT_BIT, fragShaderModule, "main", nullptr}
         };
 
-        // Vertex Input Configuration
-        VkPipelineVertexInputStateCreateInfo vertexInputInfo{};
+
         vertexInputInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
-
-        VkVertexInputBindingDescription bindingDescription = getBindingDescription();
-        std::array<VkVertexInputAttributeDescription, 2> attributeDescriptions = getAttributeDescriptions();
-
         vertexInputInfo.vertexBindingDescriptionCount = 1;
         vertexInputInfo.pVertexBindingDescriptions = &bindingDescription;
         vertexInputInfo.vertexAttributeDescriptionCount = static_cast<uint32_t>(attributeDescriptions.size());
         vertexInputInfo.pVertexAttributeDescriptions = attributeDescriptions.data();
 
-        // Input Assembly
         VkPipelineInputAssemblyStateCreateInfo inputAssembly{};
         inputAssembly.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
         inputAssembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
         inputAssembly.primitiveRestartEnable = VK_FALSE;
 
-        // Viewport & Scissor
-        VkViewport viewport{};
-        viewport.x = 0.0f;
-        viewport.y = 0.0f;
-        viewport.width = static_cast<float>(swapChainExtent.width);
-        viewport.height = static_cast<float>(swapChainExtent.height);
-        viewport.minDepth = 0.0f;
-        viewport.maxDepth = 1.0f;
-
-        VkRect2D scissor{};
-        scissor.offset = {0, 0};
-        scissor.extent = swapChainExtent;
+        VkViewport viewport{0.0f, 0.0f, (float) swapChainExtent.width, (float) swapChainExtent.height, 0.0f, 1.0f};
+        VkRect2D scissor{{0, 0}, swapChainExtent};
 
         VkPipelineViewportStateCreateInfo viewportState{};
         viewportState.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
@@ -974,44 +1063,39 @@ private:
         viewportState.scissorCount = 1;
         viewportState.pScissors = &scissor;
 
-        // Rasterizer
         VkPipelineRasterizationStateCreateInfo rasterizer{};
         rasterizer.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
         rasterizer.depthClampEnable = VK_FALSE;
         rasterizer.rasterizerDiscardEnable = VK_FALSE;
         rasterizer.polygonMode = VK_POLYGON_MODE_FILL;
         rasterizer.lineWidth = 1.0f;
-        rasterizer.cullMode = VK_CULL_MODE_NONE;
+        rasterizer.cullMode = VK_CULL_MODE_BACK_BIT;
         rasterizer.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
         rasterizer.depthBiasEnable = VK_FALSE;
 
-        // Multisampling
         VkPipelineMultisampleStateCreateInfo multisampling{};
         multisampling.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
         multisampling.sampleShadingEnable = VK_FALSE;
         multisampling.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
 
-        // Color Blending
         VkPipelineColorBlendAttachmentState colorBlendAttachment{};
-        colorBlendAttachment.colorWriteMask =
-            VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
-            VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+        colorBlendAttachment.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
+                                              VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
         colorBlendAttachment.blendEnable = VK_FALSE;
 
         VkPipelineColorBlendStateCreateInfo colorBlending{};
         colorBlending.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
-        colorBlending.logicOpEnable = VK_FALSE;
         colorBlending.attachmentCount = 1;
         colorBlending.pAttachments = &colorBlendAttachment;
 
-        // Pipeline Layout
-        VkPipelineLayoutCreateInfo pipelineLayoutInfo{};
-        pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-        if (vkCreatePipelineLayout(device, &pipelineLayoutInfo, nullptr, &pipelineLayout) != VK_SUCCESS) {
-            throw std::runtime_error("ERROR: Failed to create pipeline layout!");
+        if (pipelineLayout == VK_NULL_HANDLE) {
+            throw std::runtime_error("❌ ERROR: pipelineLayout is NULL before graphics pipeline creation!");
         }
 
-        // Graphics Pipeline
+        if (renderPass == VK_NULL_HANDLE) {
+            throw std::runtime_error("❌ ERROR: renderPass is NULL before graphics pipeline creation!");
+        }
+
         VkGraphicsPipelineCreateInfo pipelineInfo{};
         pipelineInfo.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
         pipelineInfo.stageCount = 2;
@@ -1025,17 +1109,24 @@ private:
         pipelineInfo.layout = pipelineLayout;
         pipelineInfo.renderPass = renderPass;
         pipelineInfo.subpass = 0;
-        pipelineInfo.flags = VK_PIPELINE_CREATE_DISABLE_OPTIMIZATION_BIT;
 
-        if (vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &graphicsPipeline) != VK_SUCCESS) {
-            throw std::runtime_error("❌ Graphics pipeline was not created successfully!");
+        std::cout << "🟢 Debugging Graphics Pipeline Creation...\n";
+        std::cout << "🟢 Device: " << device << "\n";
+        std::cout << "🟢 Pipeline Layout: " << pipelineLayout << "\n";
+        std::cout << "🟢 Render Pass: " << renderPass << "\n";
+        std::cout << "🟢 Vertex Shader Module: " << vertShaderModule << "\n";
+        std::cout << "🟢 Fragment Shader Module: " << fragShaderModule << "\n";
+
+        VkResult result = vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &graphicsPipeline);
+        if (result != VK_SUCCESS) {
+            std::cerr << "❌ ERROR: vkCreateGraphicsPipelines failed! VkResult = " << result << "\n";
+            throw std::runtime_error("❌ ERROR: Graphics pipeline creation failed!");
         }
 
-        std::cout << "✅ Graphics Pipeline Fully Rebuilt!\n";
-
-        // Clean up shader modules
         vkDestroyShaderModule(device, vertShaderModule, nullptr);
         vkDestroyShaderModule(device, fragShaderModule, nullptr);
+
+        std::cout << "✅ Graphics Pipeline Fully Rebuilt!\n";
     }
 
 
