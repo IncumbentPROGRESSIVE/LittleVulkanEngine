@@ -473,7 +473,9 @@ class HelloTriangleApplication {
 
         // 🚨 Extra check to prevent crashes
         if (imageIndex >= commandBuffers.size() || commandBuffers[imageIndex] == VK_NULL_HANDLE) {
-            throw std::runtime_error("❌ ERROR: commandBuffers[" + std::to_string(imageIndex) + "] is NULL or out of range!");
+            std::cerr << "❌ ERROR: commandBuffers[" << imageIndex << "] is NULL or out of range!\n";
+            std::cerr << "🔍 Command Buffers Count: " << commandBuffers.size() << std::endl;
+            throw std::runtime_error("❌ ERROR: Invalid command buffer index!");
         }
 
         std::cout << "✅ commandBuffer for this image: " << commandBuffers[imageIndex] << std::endl;
@@ -618,27 +620,20 @@ private:
 
     
     void createFramebuffers() {
-        std::cout << "🔍 Entering createFramebuffers()..." << std::endl;
+        std::cout << "🛠 Entering createFramebuffers()..." << std::endl;
 
-        // Ensure we clear any previously allocated framebuffers
         if (!swapChainFramebuffers.empty()) {
-            std::cout << "🧹 Cleaning up old framebuffers..." << std::endl;
+            std::cout << "🗑 Destroying existing framebuffers..." << std::endl;
             for (auto framebuffer : swapChainFramebuffers) {
                 vkDestroyFramebuffer(device, framebuffer, nullptr);
             }
-            swapChainFramebuffers.clear();
         }
 
-        swapChainFramebuffers.resize(swapChainImageViews.size());
-
-        std::cout << "🖼 Number of framebuffers to create: " << swapChainImageViews.size() << std::endl;
+        swapChainFramebuffers.resize(swapChainImageViews.size(), VK_NULL_HANDLE);
+        std::cout << "🔍 Resized swapChainFramebuffers to " << swapChainFramebuffers.size() << " entries.\n";
 
         for (size_t i = 0; i < swapChainImageViews.size(); i++) {
-            std::cout << "🔄 Creating framebuffer " << i << "..." << std::endl;
-
-            VkImageView attachments[] = {
-                swapChainImageViews[i]
-            };
+            VkImageView attachments[] = { swapChainImageViews[i] };
 
             VkFramebufferCreateInfo framebufferInfo{};
             framebufferInfo.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
@@ -649,17 +644,14 @@ private:
             framebufferInfo.height = swapChainExtent.height;
             framebufferInfo.layers = 1;
 
-            VkResult result = vkCreateFramebuffer(device, &framebufferInfo, nullptr, &swapChainFramebuffers[i]);
-
-            if (result != VK_SUCCESS) {
+            if (vkCreateFramebuffer(device, &framebufferInfo, nullptr, &swapChainFramebuffers[i]) != VK_SUCCESS) {
                 throw std::runtime_error("❌ ERROR: Failed to create framebuffer " + std::to_string(i) + "!");
             }
 
-            std::cout << "✅ Framebuffer " << i << " successfully created! Handle: " << swapChainFramebuffers[i] << std::endl;
+            std::cout << "✅ Framebuffer " << i << " created successfully! Handle: " << swapChainFramebuffers[i] << std::endl;
         }
-
-        std::cout << "✅ All framebuffers created successfully!" << std::endl;
     }
+
 
     
     void createCommandPool() {
@@ -674,16 +666,18 @@ private:
         }
     }
     void createCommandBuffers() {
-        std::cout << "🛠 Entering createCommandBuffers()...\n";
+        std::cout << "🛠 Entering createCommandBuffers()..." << std::endl;
 
-        // Ensure previous command buffers are freed
+        // Ensure previous command buffers are freed if they exist
         if (!commandBuffers.empty()) {
             std::cout << "🗑 Freeing existing command buffers...\n";
             vkFreeCommandBuffers(device, commandPool, static_cast<uint32_t>(commandBuffers.size()), commandBuffers.data());
         }
 
-        // **Ensure we have the right number of command buffers**
-        commandBuffers.resize(swapChainFramebuffers.size());
+        // Resize commandBuffers based on the swap chain framebuffer count
+        commandBuffers.resize(swapChainFramebuffers.size(), VK_NULL_HANDLE);
+
+        std::cout << "🔍 Resized commandBuffers to " << commandBuffers.size() << " entries.\n";
 
         VkCommandBufferAllocateInfo allocInfo{};
         allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
@@ -691,54 +685,22 @@ private:
         allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
         allocInfo.commandBufferCount = static_cast<uint32_t>(commandBuffers.size());
 
-        // **Allocate command buffers**
+        // Allocate command buffers
         VkResult result = vkAllocateCommandBuffers(device, &allocInfo, commandBuffers.data());
         if (result != VK_SUCCESS) {
             throw std::runtime_error("❌ ERROR: Failed to allocate command buffers!");
         }
 
-        std::cout << "✅ Command buffers allocated successfully!\n";
+        std::cout << "✅ Command buffers allocated successfully! Count: " << commandBuffers.size() << "\n";
 
-        // **Record commands for each buffer**
+        // Ensure all buffers are initialized
         for (size_t i = 0; i < commandBuffers.size(); i++) {
-            VkCommandBufferBeginInfo beginInfo{};
-            beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-            beginInfo.flags = VK_COMMAND_BUFFER_USAGE_SIMULTANEOUS_USE_BIT;
-
-            if (vkBeginCommandBuffer(commandBuffers[i], &beginInfo) != VK_SUCCESS) {
-                throw std::runtime_error("ERROR: Failed to begin recording command buffer!");
+            if (commandBuffers[i] == VK_NULL_HANDLE) {
+                throw std::runtime_error("❌ ERROR: commandBuffers[" + std::to_string(i) + "] is NULL after allocation!");
             }
-
-            VkRenderPassBeginInfo renderPassInfo{};
-            renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
-            renderPassInfo.renderPass = renderPass;
-            renderPassInfo.framebuffer = swapChainFramebuffers[i];
-            renderPassInfo.renderArea.offset = {0, 0};
-            renderPassInfo.renderArea.extent = swapChainExtent;
-
-            VkClearValue clearColor = {{{0.0f, 0.0f, 0.0f, 1.0f}}};  // Black background
-            renderPassInfo.clearValueCount = 1;
-            renderPassInfo.pClearValues = &clearColor;
-
-            vkCmdBeginRenderPass(commandBuffers[i], &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
-            vkCmdBindPipeline(commandBuffers[i], VK_PIPELINE_BIND_POINT_GRAPHICS, graphicsPipeline);
-
-            VkBuffer vertexBuffers[] = {vertexBuffer};
-            VkDeviceSize offsets[] = {0};
-            vkCmdBindVertexBuffers(commandBuffers[i], 0, 1, vertexBuffers, offsets);
-
-            std::cout << "🟢 Recording draw call for buffer " << i << "...\n";
-            vkCmdDraw(commandBuffers[i], static_cast<uint32_t>(tileVertices.size()), 1, 0, 0);
-
-            vkCmdEndRenderPass(commandBuffers[i]);
-
-            if (vkEndCommandBuffer(commandBuffers[i]) != VK_SUCCESS) {
-                throw std::runtime_error("ERROR: Failed to record command buffer!");
-            }
-
-            std::cout << "✅ Command buffer " << i << " recorded successfully!\n";
         }
     }
+
 
     VkRenderPass renderPass;
     GLFWwindow* window;
