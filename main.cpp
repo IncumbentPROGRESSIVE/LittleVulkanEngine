@@ -378,7 +378,7 @@ class HelloTriangleApplication {
             assert(false && "🔴 CRASH: Failed to create descriptor pool!");
         }
 
-        std::cout << "✅ Debug: descriptorPool successfully created: " << descriptorPool << std::endl << std::flush;
+        std::cout << "✅ descriptorPool created successfully: " << descriptorPool << std::endl << std::flush;
 
         // 🔍 Step 2: Allocate Descriptor Set
         std::cout << "🔍 Allocating descriptor set..." << std::endl << std::flush;
@@ -394,7 +394,7 @@ class HelloTriangleApplication {
             assert(false && "🔴 CRASH: Failed to allocate descriptor set!");
         }
 
-        std::cout << "✅ Debug: descriptorSet successfully allocated: " << descriptorSet << std::endl << std::flush;
+        std::cout << "✅ descriptorSet allocated successfully: " << descriptorSet << std::endl << std::flush;
 
         // 🔍 Step 3: Validate Texture Image View & Sampler
         if (textureImageView == VK_NULL_HANDLE) {
@@ -406,7 +406,7 @@ class HelloTriangleApplication {
             assert(false && "🔴 CRASH: textureSampler is NULL!");
         }
 
-        // 🔍 Step 4: Write Descriptor Set
+        // 🔍 Step 4: Prepare Descriptor Write
         VkDescriptorImageInfo imageInfo{};
         imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
         imageInfo.imageView = textureImageView;
@@ -415,24 +415,39 @@ class HelloTriangleApplication {
         VkWriteDescriptorSet descriptorWrite{};
         descriptorWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
         descriptorWrite.dstSet = descriptorSet;
-        descriptorWrite.dstBinding = 0;  // Make sure this matches the shader binding!
+        descriptorWrite.dstBinding = 0;  // Ensure this matches shader binding!
         descriptorWrite.dstArrayElement = 0;
         descriptorWrite.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
         descriptorWrite.descriptorCount = 1;
         descriptorWrite.pImageInfo = &imageInfo;
 
-        if (descriptorSet == VK_NULL_HANDLE) {
-            std::cerr << "❌ descriptorSet is NULL before vkUpdateDescriptorSets!" << std::endl << std::flush;
-            assert(false && "🔴 CRASH: descriptorSet is NULL!");
+        // Debugging output for descriptor info
+        std::cout << "🔍 descriptorSet: " << descriptorSet << std::endl;
+        std::cout << "🔍 descriptorWrite.dstBinding: " << descriptorWrite.dstBinding << std::endl;
+        std::cout << "🔍 descriptorWrite.descriptorType: " << descriptorWrite.descriptorType << std::endl;
+        std::cout << "🔍 descriptorWrite.descriptorCount: " << descriptorWrite.descriptorCount << std::endl;
+        std::cout << "🔍 descriptorWrite.pImageInfo: " << descriptorWrite.pImageInfo << std::endl;
+
+        if (descriptorWrite.pImageInfo) {
+            std::cout << "🔍 imageInfo.imageView: " << descriptorWrite.pImageInfo->imageView << std::endl;
+            std::cout << "🔍 imageInfo.sampler: " << descriptorWrite.pImageInfo->sampler << std::endl;
+            std::cout << "🔍 imageInfo.imageLayout: " << descriptorWrite.pImageInfo->imageLayout << std::endl;
         }
 
+        // 🔍 Step 5: Update Descriptor Set
         std::cout << "🔍 Updating descriptor set..." << std::endl << std::flush;
         vkUpdateDescriptorSets(device, 1, &descriptorWrite, 0, nullptr);
         std::cout << "✅ Descriptor set updated successfully!" << std::endl << std::flush;
+
+        // 🔍 Step 6: Additional Debugging After Update
+        if (descriptorSet == VK_NULL_HANDLE) {
+            std::cerr << "❌ ERROR: descriptorSet is NULL after vkUpdateDescriptorSets!" << std::endl << std::flush;
+            assert(false && "🔴 CRASH: descriptorSet is NULL after update!");
+        } else {
+            std::cout << "✅ Post-update descriptorSet is valid: " << descriptorSet << std::endl << std::flush;
+        }
     }
 
-
-    
     VkSemaphore imageAvailableSemaphore;
     VkSemaphore renderFinishedSemaphore;
     void createSyncObjects() {
@@ -443,6 +458,7 @@ class HelloTriangleApplication {
             throw std::runtime_error("ERROR: Failed to create semaphores!");
         }
     }
+    
     void drawFrame() {
         vkQueueWaitIdle(graphicsQueue);
         uint32_t imageIndex;
@@ -833,7 +849,7 @@ private:
     void createPipelineLayout() {
         // Define the sampler descriptor layout binding
         VkDescriptorSetLayoutBinding samplerLayoutBinding{};
-        samplerLayoutBinding.binding = 1;  // Matches the binding in the fragment shader
+        samplerLayoutBinding.binding = 0;  // Matches the binding in the fragment shader
         samplerLayoutBinding.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
         samplerLayoutBinding.descriptorCount = 1;
         samplerLayoutBinding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
