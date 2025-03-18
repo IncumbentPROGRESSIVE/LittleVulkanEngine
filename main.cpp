@@ -504,7 +504,7 @@ class HelloTriangleApplication {
 
         vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0, 1, &descriptorSet, 0, nullptr);
 
-        vkCmdDraw(commandBuffer, 4, 1, 0, 0);
+        vkCmdDraw(commandBuffer, 6, 1, 0, 0);
 
         vkCmdEndRenderPass(commandBuffer);
 
@@ -623,23 +623,60 @@ class HelloTriangleApplication {
 
         return attributeDescriptions;
     }
-
-
-
     
 public:
+    
+    VkCommandBuffer beginSingleTimeCommands() {
+        VkCommandBufferAllocateInfo allocInfo{};
+        allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+        allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+        allocInfo.commandPool = commandPool;
+        allocInfo.commandBufferCount = 1;
+
+        VkCommandBuffer commandBuffer;
+        vkAllocateCommandBuffers(device, &allocInfo, &commandBuffer);
+
+        VkCommandBufferBeginInfo beginInfo{};
+        beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+        beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+
+        if (vkBeginCommandBuffer(commandBuffer, &beginInfo) != VK_SUCCESS) {
+            throw std::runtime_error("❌ ERROR: Failed to begin command buffer!");
+        }
+
+        return commandBuffer;
+    }
+
+    void endSingleTimeCommands(VkCommandBuffer commandBuffer) {
+        if (vkEndCommandBuffer(commandBuffer) != VK_SUCCESS) {
+            throw std::runtime_error("❌ ERROR: Failed to end command buffer!");
+        }
+
+        VkSubmitInfo submitInfo{};
+        submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+        submitInfo.commandBufferCount = 1;
+        submitInfo.pCommandBuffers = &commandBuffer;
+
+        vkQueueSubmit(graphicsQueue, 1, &submitInfo, VK_NULL_HANDLE);
+        vkQueueWaitIdle(graphicsQueue);
+
+        vkFreeCommandBuffers(device, commandPool, 1, &commandBuffer);
+    }
+    
+    
     void run() {
         initWindow();
         initVulkan();
         mainLoop();
         cleanup();
     }
+    
 private:
     VkDescriptorPool descriptorPool;  // Declare descriptor pool
     VkDescriptorSetLayout descriptorSetLayout;
     
-    VkCommandBuffer beginSingleTimeCommands();
-        void endSingleTimeCommands(VkCommandBuffer commandBuffer);
+    //VkCommandBuffer beginSingleTimeCommands();
+        //void endSingleTimeCommands(VkCommandBuffer commandBuffer);
     VkDescriptorSet descriptorSet;
     VkBuffer vertexBuffer;
     VkDeviceMemory vertexBufferMemory;
@@ -1490,6 +1527,8 @@ private:
         std::cerr << "validation layer: " << pCallbackData->pMessage << std::endl;
         return VK_FALSE;
     }
+    
+    
 };
 int main() {
     printWorkingDirectory();
@@ -1537,14 +1576,17 @@ void HelloTriangleApplication::createImage(uint32_t width, uint32_t height, VkFo
 
 
 
-void HelloTriangleApplication::transitionImageLayout(VkImage image, VkFormat format, VkImageLayout oldLayout, VkImageLayout newLayout) {
+void transitionImageLayout(VkDevice device, VkCommandPool commandPool, VkQueue graphicsQueue,
+                           VkImage image, VkFormat format, VkImageLayout oldLayout, VkImageLayout newLayout) {
     if (image == VK_NULL_HANDLE) {
         throw std::runtime_error("❌ ERROR: Trying to transition a NULL image!");
     }
 
     std::cout << "🔄 Transitioning Image Layout from " << oldLayout << " to " << newLayout << std::endl;
+    HelloTriangleApplication app;
+    VkCommandBuffer commandBuffer = app.beginSingleTimeCommands();
 
-    VkCommandBuffer commandBuffer = beginSingleTimeCommands();
+    
 
     VkImageMemoryBarrier barrier{};
     barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
@@ -1580,11 +1622,8 @@ void HelloTriangleApplication::transitionImageLayout(VkImage image, VkFormat for
 
     vkCmdPipelineBarrier(commandBuffer, sourceStage, destinationStage, 0, 0, nullptr, 0, nullptr, 1, &barrier);
 
-    endSingleTimeCommands(commandBuffer);
-
-    std::cout << "✅ Image Layout Transitioned Successfully!" << std::endl;
+    app.endSingleTimeCommands(commandBuffer);
 }
-
 
 
 void HelloTriangleApplication::copyBufferToImage(VkBuffer buffer, VkImage image,
@@ -1638,40 +1677,4 @@ VkImageView HelloTriangleApplication::createImageView(VkImage image, VkFormat fo
 }
 
 
-VkCommandBuffer HelloTriangleApplication::beginSingleTimeCommands() {
-    VkCommandBufferAllocateInfo allocInfo{};
-    allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-    allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-    allocInfo.commandPool = commandPool;
-    allocInfo.commandBufferCount = 1;
 
-    VkCommandBuffer commandBuffer;
-    vkAllocateCommandBuffers(device, &allocInfo, &commandBuffer);
-
-    VkCommandBufferBeginInfo beginInfo{};
-    beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-    beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-
-    if (vkBeginCommandBuffer(commandBuffer, &beginInfo) != VK_SUCCESS) {
-        throw std::runtime_error("❌ ERROR: Failed to begin command buffer!");
-    }
-
-    return commandBuffer;
-}
-
-
-void HelloTriangleApplication::endSingleTimeCommands(VkCommandBuffer commandBuffer) {
-    if (vkEndCommandBuffer(commandBuffer) != VK_SUCCESS) {
-        throw std::runtime_error("❌ ERROR: Failed to end command buffer!");
-    }
-
-    VkSubmitInfo submitInfo{};
-    submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-    submitInfo.commandBufferCount = 1;
-    submitInfo.pCommandBuffers = &commandBuffer;
-
-    vkQueueSubmit(graphicsQueue, 1, &submitInfo, VK_NULL_HANDLE);
-    vkQueueWaitIdle(graphicsQueue);
-
-    vkFreeCommandBuffers(device, commandPool, 1, &commandBuffer);
-}
