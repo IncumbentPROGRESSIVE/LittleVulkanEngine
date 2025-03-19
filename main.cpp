@@ -27,128 +27,8 @@ struct Vertex {
     glm::vec2 texCoord; // Texture Coordinates (u, v)
 };
 
-
-/*
-const int TILEMAP_WIDTH = 32;
-const int TILEMAP_HEIGHT = 32;
-const std::string TILEMAP_PATH = "/Users/colinleary/Downloads/RoomOneNew_Cleaned (2).csv";
- 
-std::vector<std::vector<int>> loadTilemapCSV(const std::string& filename) {
-    std::vector<std::vector<int>> tilemap;
-
-    if (!std::filesystem::exists(filename)) {
-        throw std::runtime_error("❌ ERROR: Tilemap file not found: " + filename);
-    }
-
-    std::ifstream file(filename);
-    if (!file.is_open()) {
-        throw std::runtime_error("❌ ERROR: Unable to open tilemap CSV file!");
-    }
-
-    std::string line;
-    int rowCount = 0;
-
-    while (std::getline(file, line)) {
-        std::vector<int> row;
-        std::stringstream ss(line);
-        std::string cell;
-
-        while (std::getline(ss, cell, ',')) {
-            try {
-                row.push_back(std::stoi(cell));
-            } catch (...) {
-                throw std::runtime_error("❌ ERROR: Invalid data in CSV file!");
-            }
-        }
-
-        if (row.size() != TILEMAP_WIDTH) {
-            throw std::runtime_error("❌ ERROR: Unexpected row width at line " + std::to_string(rowCount + 1));
-        }
-
-        tilemap.push_back(row);
-        std::cout << "🔹 Row " << rowCount + 1 << " has " << row.size() << " tiles" << std::endl;
-        rowCount++;
-    }
-
-    file.close();
-
-    // Debug: Print the last row read
-    if (!tilemap.empty()) {
-        std::cout << "🔍 Last row read: ";
-        for (int val : tilemap.back()) {
-            std::cout << val << " ";
-        }
-        std::cout << std::endl;
-    }
-
-    // Ensure the tilemap is exactly 32 rows
-    while (tilemap.size() < TILEMAP_HEIGHT) {
-        tilemap.push_back(std::vector<int>(TILEMAP_WIDTH, 0));  // Fill missing rows with zeros
-        std::cout << "⚠️ WARNING: Adding missing row " << tilemap.size() << " with default tiles." << std::endl;
-    }
-
-    if (tilemap.size() != TILEMAP_HEIGHT) {
-        throw std::runtime_error("❌ ERROR: Unexpected tilemap height! Expected " + std::to_string(TILEMAP_HEIGHT) + " but got " + std::to_string(tilemap.size()));
-    }
-
-    std::cout << "✅ Loaded Tilemap Successfully! (" << tilemap.size() << " rows)" << std::endl;
-    return tilemap;
-}
-
-const int ROOM_WIDTH = 10;
-const int ROOM_HEIGHT = 8;
-const float TILE_SIZE = 0.2f;
-const std::vector<std::vector<int>> tilemap = {
-    {1, 1, 1, 1, 1, 1, 1, 1, 1, 1},
-    {1, 0, 0, 0, 0, 0, 0, 0, 0, 1},
-    {1, 0, 0, 0, 0, 0, 0, 0, 0, 1},
-    {1, 0, 0, 0, 0, 0, 0, 0, 0, 1},
-    {1, 0, 0, 0, 0, 0, 0, 0, 0, 1},
-    {1, 0, 0, 0, 0, 0, 0, 0, 0, 1},
-    {1, 0, 0, 0, 0, 0, 0, 0, 0, 1},
-    {1, 1, 1, 1, 1, 1, 1, 1, 1, 1}
-};
- 
- */
 #include <glm/glm.hpp>
-/*
-std::vector<Vertex> generateTilemapVertices(const std::vector<std::vector<int>>& tilemap) {
-    std::vector<Vertex> vertices;
-    
-    float startX = -1.0f;
-    float startY = 1.0f;
-    float tileSizeX = 2.0f / TILEMAP_WIDTH;
-    float tileSizeY = 2.0f / TILEMAP_HEIGHT;
 
-    for (int y = 0; y < TILEMAP_HEIGHT; y++) {
-        for (int x = 0; x < TILEMAP_WIDTH; x++) {
-            int tileID = tilemap[y][x];
-
-            // Remove color calculations and replace with texture coordinates
-            float xOffset = startX + x * tileSizeX;
-            float yOffset = startY - y * tileSizeY;
-
-            // Texture coordinates (assuming full texture mapping)
-            glm::vec2 texTopLeft = { x / float(TILEMAP_WIDTH), y / float(TILEMAP_HEIGHT) };
-            glm::vec2 texTopRight = { (x + 1) / float(TILEMAP_WIDTH), y / float(TILEMAP_HEIGHT) };
-            glm::vec2 texBottomLeft = { x / float(TILEMAP_WIDTH), (y + 1) / float(TILEMAP_HEIGHT) };
-            glm::vec2 texBottomRight = { (x + 1) / float(TILEMAP_WIDTH), (y + 1) / float(TILEMAP_HEIGHT) };
-
-            // Define two triangles forming a tile with texture coordinates
-            vertices.push_back({{xOffset, yOffset}, texTopLeft});
-            vertices.push_back({{xOffset + tileSizeX, yOffset}, texTopRight});
-            vertices.push_back({{xOffset, yOffset - tileSizeY}, texBottomLeft});
-
-            vertices.push_back({{xOffset + tileSizeX, yOffset}, texTopRight});
-            vertices.push_back({{xOffset + tileSizeX, yOffset - tileSizeY}, texBottomRight});
-            vertices.push_back({{xOffset, yOffset - tileSizeY}, texBottomLeft});
-        }
-    }
-
-    std::cout << "✅ Tilemap Vertices with Texture Coordinates Generated Successfully!\n";
-    return vertices;
-}
-*/
 void printWorkingDirectory() {
     char cwd[PATH_MAX];
     if (getcwd(cwd, sizeof(cwd)) != nullptr) {
@@ -210,11 +90,7 @@ struct SwapChainSupportDetails {
     std::vector<VkPresentModeKHR> presentModes;
 };
 
-
-
-
 class HelloTriangleApplication {
-    
     
     
     void createBuffer(VkDeviceSize size, VkBufferUsageFlags usage, VkMemoryPropertyFlags properties, VkBuffer &buffer, VkDeviceMemory &bufferMemory) {
@@ -675,8 +551,6 @@ private:
     VkDescriptorPool descriptorPool;  // Declare descriptor pool
     VkDescriptorSetLayout descriptorSetLayout;
     
-    //VkCommandBuffer beginSingleTimeCommands();
-        //void endSingleTimeCommands(VkCommandBuffer commandBuffer);
     VkDescriptorSet descriptorSet;
     VkBuffer vertexBuffer;
     VkDeviceMemory vertexBufferMemory;
