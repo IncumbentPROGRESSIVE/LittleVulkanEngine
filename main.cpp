@@ -147,33 +147,46 @@ class HelloTriangleApplication {
             assert(false && "🔴 CRASH: Failed to load KTX texture!");
         }
 
-        std::cout << "✅ KTX Texture loaded successfully!\n";
+        std::cout << "✅ KTX2 Texture loaded successfully!\n";
         std::cout << "🔍 Texture Dimensions: " << texture->baseWidth << " x " << texture->baseHeight << "\n";
         std::cout << "🔍 Mip Levels: " << texture->numLevels << "\n";
 
-        // Attempt to retrieve format
-        VkFormat textureFormat = ktxTexture_GetVkFormat(texture);
-        std::cout << "🔍 Format: " << textureFormat << "\n";
+        // **Check BC7 format support before deciding transcoding format**
+        std::cout << "🟡 Checking BC7 Format Support Before Loading Texture...\n";
+        VkFormatProperties formatProperties;
+        vkGetPhysicalDeviceFormatProperties(physicalDevice, VK_FORMAT_BC7_UNORM_BLOCK, &formatProperties);
 
-        // 🚀 Fix: Assign a format manually if VK_FORMAT_UNDEFINED
+        bool supportsBC7 = formatProperties.optimalTilingFeatures & VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT;
+        if (!supportsBC7) {
+            std::cerr << "❌ ERROR: GPU does NOT support BC7. Trying ASTC instead.\n";
+        } else {
+            std::cout << "✅ GPU supports BC7. Proceeding with BC7 format.\n";
+        }
+
+        // **Set transcoding format dynamically**
+        ktx_transcode_fmt_e targetFormat = supportsBC7 ? KTX_TTF_BC7_RGBA : KTX_TTF_ASTC_4x4_RGBA;
+
+        // **Handle VK_FORMAT_UNDEFINED case**
+        VkFormat textureFormat = ktxTexture_GetVkFormat(texture);
         if (textureFormat == VK_FORMAT_UNDEFINED) {
-            std::cerr << "❌ ERROR: KTX file has VK_FORMAT_UNDEFINED! Setting a default format.\n";
-            textureFormat = VK_FORMAT_R8G8B8A8_SRGB;  // 🎯 **Set a valid format manually**
+            std::cerr << "❌ ERROR: KTX2 file has VK_FORMAT_UNDEFINED! Attempting to transcode...\n";
+            
+            if (ktxTexture2_TranscodeBasis(reinterpret_cast<ktxTexture2*>(texture), targetFormat, 0) != KTX_SUCCESS) {
+                throw std::runtime_error("❌ ERROR: Transcoding failed!");
+            }
+
+            // **Map KTX format to Vulkan format**
+            textureFormat = supportsBC7 ? VK_FORMAT_BC7_UNORM_BLOCK : VK_FORMAT_ASTC_4x4_UNORM_BLOCK;
+            std::cout << "✅ Transcoded Format: " << textureFormat << "\n";
         }
 
         createImage(texture->baseWidth, texture->baseHeight,
-                    textureFormat,  // ✅ Using retrieved or default format
+                    textureFormat,  // ✅ Using retrieved or transcoded format
                     VK_IMAGE_TILING_OPTIMAL,
                     VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
                     VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
                     textureImage, textureImageMemory);
 
-        if (textureImage == VK_NULL_HANDLE) {
-            std::cerr << "❌ ERROR: textureImage is NULL after Vulkan image creation!" << std::endl;
-            assert(false && "🔴 CRASH: textureImage is NULL after createImage()");
-        }
-
-        std::cout << "✅ Vulkan Image Created for Texture!\n";
         vkBindImageMemory(device, textureImage, textureImageMemory, 0);
 
         ktxTexture_Destroy(texture);
@@ -377,7 +390,7 @@ class HelloTriangleApplication {
         }
 
         vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0, 1, &descriptorSet, 0, nullptr);
-
+        std::cout << "🟢 Calling vkCmdDraw()" << std::endl;
         vkCmdDraw(commandBuffer, 6, 1, 0, 0);
 
         vkCmdEndRenderPass(commandBuffer);
@@ -791,8 +804,27 @@ private:
         createPipelineLayout();
         createGraphicsPipeline();
 
+        std::cout << "🟡 Checking BC7 Format Support Before Loading Texture..." << std::endl;
+
+        // 🔍 Check if GPU supports BC7 before attempting to load texture
+        VkFormatProperties formatProperties;
+        vkGetPhysicalDeviceFormatProperties(physicalDevice, VK_FORMAT_BC7_UNORM_BLOCK, &formatProperties);
+
+        if (!(formatProperties.optimalTilingFeatures & VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT)) {
+            std::cerr << "❌ ERROR: GPU does NOT support BC7. Trying ASTC instead..." << std::endl;
+
+            vkGetPhysicalDeviceFormatProperties(physicalDevice, VK_FORMAT_ASTC_4x4_UNORM_BLOCK, &formatProperties);
+            if (!(formatProperties.optimalTilingFeatures & VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT)) {
+                throw std::runtime_error("❌ ERROR: GPU does NOT support BC7 or ASTC! Cannot load texture.");
+            }
+
+            std::cout << "✅ GPU supports ASTC. Using ASTC instead of BC7.\n";
+        } else {
+            std::cout << "✅ GPU supports BC7. Proceeding with BC7 format.\n";
+        }
+
         std::cout << "🟡 Calling loadTexture() before descriptor set creation..." << std::endl;
-        loadTexture();
+        loadTexture(); // ✅ Now safe to load the texture
 
         std::cout << "🔍 Calling createTextureImageView()..." << std::endl;
         createTextureImageView();
@@ -819,6 +851,7 @@ private:
         std::cout << "🔍 Creating synchronization objects...\n";
         createSyncObjects();
     }
+
 
     void createRenderPass() {
         VkAttachmentDescription colorAttachment{};
@@ -1436,7 +1469,13 @@ void HelloTriangleApplication::createImage(uint32_t width, uint32_t height, VkFo
     imageInfo.format = format;
     imageInfo.tiling = tiling;
     imageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-    imageInfo.usage = usage;
+
+    // ✅ Ensure format mutability for BC7 compatibility
+    imageInfo.flags = VK_IMAGE_CREATE_MUTABLE_FORMAT_BIT;
+
+    // ✅ Ensure proper texture usage flags
+    imageInfo.usage = usage | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+
     imageInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
     imageInfo.samples = VK_SAMPLE_COUNT_1_BIT;
 
@@ -1460,7 +1499,6 @@ void HelloTriangleApplication::transitionImageLayout(VkImage image, VkFormat for
 
     std::cout << "🔄 Transitioning Image Layout from " << oldLayout << " to " << newLayout << "\n";
 
-    // ✅ Explicitly call beginSingleTimeCommands() using 'this' to ensure it's found
     VkCommandBuffer commandBuffer = this->beginSingleTimeCommands();
 
     VkImageMemoryBarrier barrier{};
@@ -1484,20 +1522,12 @@ void HelloTriangleApplication::transitionImageLayout(VkImage image, VkFormat for
         barrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
         sourceStage = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
         destinationStage = VK_PIPELINE_STAGE_TRANSFER_BIT;
-    }
-    else if (oldLayout == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL && newLayout == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL) {
-        barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-        barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
-        sourceStage = VK_PIPELINE_STAGE_TRANSFER_BIT;
-        destinationStage = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
-    }
-    else {
+    } else {
         throw std::runtime_error("❌ ERROR: Unsupported layout transition!");
     }
 
     vkCmdPipelineBarrier(commandBuffer, sourceStage, destinationStage, 0, 0, nullptr, 0, nullptr, 1, &barrier);
 
-    // ✅ Explicitly call endSingleTimeCommands() using 'this' to ensure it's found
     this->endSingleTimeCommands(commandBuffer);
 }
 
@@ -1532,12 +1562,21 @@ VkImageView HelloTriangleApplication::createImageView(VkImage image, VkFormat fo
     viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
     viewInfo.image = image;
     viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
+
+    // ✅ Use the **actual** transcoded format (BC7) to avoid incompatibility
     viewInfo.format = format;
+
     viewInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
     viewInfo.subresourceRange.baseMipLevel = 0;
     viewInfo.subresourceRange.levelCount = 1;
     viewInfo.subresourceRange.baseArrayLayer = 0;
     viewInfo.subresourceRange.layerCount = 1;
+
+    // ✅ Ensure proper format compatibility
+    viewInfo.components.r = VK_COMPONENT_SWIZZLE_IDENTITY;
+    viewInfo.components.g = VK_COMPONENT_SWIZZLE_IDENTITY;
+    viewInfo.components.b = VK_COMPONENT_SWIZZLE_IDENTITY;
+    viewInfo.components.a = VK_COMPONENT_SWIZZLE_IDENTITY;
 
     VkImageView imageView;
     VkResult result = vkCreateImageView(device, &viewInfo, nullptr, &imageView);
@@ -1551,6 +1590,7 @@ VkImageView HelloTriangleApplication::createImageView(VkImage image, VkFormat fo
     return imageView;
 }
 
+
 bool checkFormatSupport(VkPhysicalDevice physicalDevice, VkFormat format) {
     VkFormatProperties formatProperties;
     vkGetPhysicalDeviceFormatProperties(physicalDevice, format, &formatProperties);
@@ -1561,9 +1601,3 @@ bool checkFormatSupport(VkPhysicalDevice physicalDevice, VkFormat format) {
     }
     return true;
 }
-
-
-
-
-
-
