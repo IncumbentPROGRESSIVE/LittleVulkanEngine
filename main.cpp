@@ -137,40 +137,44 @@ class HelloTriangleApplication {
 
     const std::string TEXTURE_PATH = "/Users/colinleary/Downloads/RoomONE.ktx2";
     void loadTexture() {
-        std::cout << "🛠 Entering loadTexture()..." << std::endl;
+        std::cout << "🛠 Entering loadTexture()...\n";
 
         ktxTexture* texture;
         KTX_error_code result = ktxTexture_CreateFromNamedFile(TEXTURE_PATH.c_str(), KTX_TEXTURE_CREATE_LOAD_IMAGE_DATA_BIT, &texture);
 
         if (result != KTX_SUCCESS) {
-            std::cerr << "❌ ERROR: Failed to load KTX texture: " << TEXTURE_PATH << std::endl;
+            std::cerr << "❌ ERROR: Failed to load KTX texture: " << TEXTURE_PATH << "\n";
             assert(false && "🔴 CRASH: Failed to load KTX texture!");
         }
 
-        std::cout << "✅ KTX Texture loaded successfully: " << TEXTURE_PATH << std::endl;
-        std::cout << "🔍 Texture Dimensions: " << texture->baseWidth << " x " << texture->baseHeight << std::endl;
+        std::cout << "✅ KTX Texture loaded successfully!\n";
+        std::cout << "🔍 Texture Dimensions: " << texture->baseWidth << " x " << texture->baseHeight << "\n";
+        std::cout << "🔍 Mip Levels: " << texture->numLevels << "\n";
 
-        // Ensure Vulkan Image is created properly
-        createImage(texture->baseWidth, texture->baseHeight, VK_FORMAT_R8G8B8A8_UNORM,
-                    VK_IMAGE_TILING_OPTIMAL, VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
-                    VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, textureImage, textureImageMemory);
+        // Attempt to retrieve format
+        VkFormat textureFormat = ktxTexture_GetVkFormat(texture);
+        std::cout << "🔍 Format: " << textureFormat << "\n";
+
+        // 🚀 Fix: Assign a format manually if VK_FORMAT_UNDEFINED
+        if (textureFormat == VK_FORMAT_UNDEFINED) {
+            std::cerr << "❌ ERROR: KTX file has VK_FORMAT_UNDEFINED! Setting a default format.\n";
+            textureFormat = VK_FORMAT_R8G8B8A8_SRGB;  // 🎯 **Set a valid format manually**
+        }
+
+        createImage(texture->baseWidth, texture->baseHeight,
+                    textureFormat,  // ✅ Using retrieved or default format
+                    VK_IMAGE_TILING_OPTIMAL,
+                    VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+                    VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+                    textureImage, textureImageMemory);
 
         if (textureImage == VK_NULL_HANDLE) {
             std::cerr << "❌ ERROR: textureImage is NULL after Vulkan image creation!" << std::endl;
             assert(false && "🔴 CRASH: textureImage is NULL after createImage()");
         }
 
-        std::cout << "✅ Vulkan Image Created for Texture!" << std::endl;
-
-        // **Bind Memory and Confirm**
+        std::cout << "✅ Vulkan Image Created for Texture!\n";
         vkBindImageMemory(device, textureImage, textureImageMemory, 0);
-
-        // Print the memory binding
-        VkMemoryRequirements memRequirements;
-        vkGetImageMemoryRequirements(device, textureImage, &memRequirements);
-        std::cout << "🔍 Bound Image Memory: Size = " << memRequirements.size
-                  << " | Alignment = " << memRequirements.alignment
-                  << " | Memory Type Bits = " << memRequirements.memoryTypeBits << std::endl;
 
         ktxTexture_Destroy(texture);
     }
@@ -203,7 +207,7 @@ class HelloTriangleApplication {
 
 
     void createTextureSampler() {
-        std::cout << "🛠 Entering createTextureSampler()..." << std::endl;
+        std::cout << "🛠 Creating Texture Sampler...\n";
 
         VkSamplerCreateInfo samplerInfo{};
         samplerInfo.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
@@ -223,19 +227,13 @@ class HelloTriangleApplication {
         VkResult result = vkCreateSampler(device, &samplerInfo, nullptr, &textureSampler);
 
         if (result != VK_SUCCESS) {
-            std::cerr << "❌ ERROR: Failed to create Vulkan texture sampler! VkResult = "
-                      << result << " (" << getVkResultString(result) << ")" << std::endl;
+            std::cerr << "❌ ERROR: Failed to create Vulkan texture sampler! VkResult = " << result << "\n";
             assert(false && "🔴 CRASH: Failed to create Vulkan texture sampler!");
         }
 
-        if (textureSampler == VK_NULL_HANDLE) {
-            std::cerr << "❌ ERROR: textureSampler is NULL after creation!" << std::endl;
-            assert(false && "🔴 CRASH: textureSampler is NULL after vkCreateSampler!");
-        } else {
-            std::cout << "✅ Vulkan Texture Sampler Created Successfully! Handle: "
-                      << textureSampler << std::endl;
-        }
+        std::cout << "✅ Texture Sampler Created: " << textureSampler << "\n";
     }
+
 
     void createDescriptorSet() {
         std::cout << "🛠 Entering createDescriptorSet()..." << std::endl << std::flush;
@@ -1421,7 +1419,11 @@ int main() {
 void HelloTriangleApplication::createImage(uint32_t width, uint32_t height, VkFormat format, VkImageTiling tiling,
                  VkImageUsageFlags usage, VkMemoryPropertyFlags properties, VkImage& image, VkDeviceMemory& imageMemory) {
 
-    std::cout << "🛠 Creating Vulkan Image: " << width << "x" << height << std::endl;
+    if (format == VK_FORMAT_UNDEFINED) {
+        throw std::runtime_error("❌ ERROR: Trying to create an image with VK_FORMAT_UNDEFINED!");
+    }
+
+    std::cout << "🛠 Creating Vulkan Image: " << width << "x" << height << "\n";
 
     VkImageCreateInfo imageInfo{};
     imageInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
@@ -1440,27 +1442,26 @@ void HelloTriangleApplication::createImage(uint32_t width, uint32_t height, VkFo
 
     VkResult result = vkCreateImage(device, &imageInfo, nullptr, &image);
     if (result != VK_SUCCESS) {
-        std::cerr << "❌ ERROR: Failed to create Vulkan Image! VkResult = "
-                  << result << " (" << getVkResultString(result) << ")" << std::endl;
+        std::cerr << "❌ ERROR: Failed to create Vulkan Image! VkResult = " << result << "\n";
         throw std::runtime_error("❌ Vulkan Image creation failed!");
     }
 
-    std::cout << "✅ Vulkan Image Created: " << image << std::endl;
+    std::cout << "✅ Vulkan Image Created: " << image << "\n";
 }
 
 
-
-void transitionImageLayout(VkDevice device, VkCommandPool commandPool, VkQueue graphicsQueue,
-                           VkImage image, VkFormat format, VkImageLayout oldLayout, VkImageLayout newLayout) {
+void HelloTriangleApplication::transitionImageLayout(VkImage image, VkFormat format, VkImageLayout oldLayout, VkImageLayout newLayout) {
     if (image == VK_NULL_HANDLE) {
         throw std::runtime_error("❌ ERROR: Trying to transition a NULL image!");
     }
+    if (format == VK_FORMAT_UNDEFINED) {
+        throw std::runtime_error("❌ ERROR: Cannot transition VK_FORMAT_UNDEFINED image!");
+    }
 
-    std::cout << "🔄 Transitioning Image Layout from " << oldLayout << " to " << newLayout << std::endl;
-    HelloTriangleApplication app;
-    VkCommandBuffer commandBuffer = app.beginSingleTimeCommands();
+    std::cout << "🔄 Transitioning Image Layout from " << oldLayout << " to " << newLayout << "\n";
 
-    
+    // ✅ Explicitly call beginSingleTimeCommands() using 'this' to ensure it's found
+    VkCommandBuffer commandBuffer = this->beginSingleTimeCommands();
 
     VkImageMemoryBarrier barrier{};
     barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
@@ -1496,9 +1497,9 @@ void transitionImageLayout(VkDevice device, VkCommandPool commandPool, VkQueue g
 
     vkCmdPipelineBarrier(commandBuffer, sourceStage, destinationStage, 0, 0, nullptr, 0, nullptr, 1, &barrier);
 
-    app.endSingleTimeCommands(commandBuffer);
+    // ✅ Explicitly call endSingleTimeCommands() using 'this' to ensure it's found
+    this->endSingleTimeCommands(commandBuffer);
 }
-
 
 void HelloTriangleApplication::copyBufferToImage(VkBuffer buffer, VkImage image,
                                                  uint32_t width, uint32_t height) {
@@ -1549,6 +1550,20 @@ VkImageView HelloTriangleApplication::createImageView(VkImage image, VkFormat fo
     std::cout << "✅ Image View Created: " << imageView << std::endl;
     return imageView;
 }
+
+bool checkFormatSupport(VkPhysicalDevice physicalDevice, VkFormat format) {
+    VkFormatProperties formatProperties;
+    vkGetPhysicalDeviceFormatProperties(physicalDevice, format, &formatProperties);
+
+    if (!(formatProperties.optimalTilingFeatures & VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT)) {
+        std::cerr << "❌ ERROR: GPU does NOT support the required format: " << format << "\n";
+        return false;
+    }
+    return true;
+}
+
+
+
 
 
 
