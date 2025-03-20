@@ -662,43 +662,25 @@ private:
     }
 
 
-    void createCommandBuffers() {
-        std::cout << "🛠 Entering createCommandBuffers()...\n";
-
-        if (swapChainFramebuffers.empty()) {
-            throw std::runtime_error("❌ ERROR: No swapChainFramebuffers available! Cannot create command buffers.");
+    void createCommandBuffers(VkDevice device, VkCommandPool commandPool, std::vector<VkCommandBuffer>& commandBuffers, uint32_t bufferCount) {
+        // Reset the command pool to allow command buffer reallocation
+        if (vkResetCommandPool(device, commandPool, 0) != VK_SUCCESS) {
+            throw std::runtime_error("❌ ERROR: Failed to reset command pool!");
         }
 
-        if (commandPool == VK_NULL_HANDLE) {
-            throw std::runtime_error("❌ ERROR: commandPool is NULL before allocating command buffers!");
-        }
-
-        // Free existing command buffers (if any)
-        if (!commandBuffers.empty()) {
-            std::cout << "🗑 Freeing existing command buffers...\n";
-            vkFreeCommandBuffers(device, commandPool, static_cast<uint32_t>(commandBuffers.size()), commandBuffers.data());
-        }
-
-        commandBuffers.resize(swapChainFramebuffers.size());
-        std::cout << "🔍 Resized commandBuffers to " << commandBuffers.size() << " entries.\n";
-
+        // Allocate command buffers
         VkCommandBufferAllocateInfo allocInfo{};
         allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
         allocInfo.commandPool = commandPool;
         allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-        allocInfo.commandBufferCount = static_cast<uint32_t>(commandBuffers.size());
+        allocInfo.commandBufferCount = bufferCount;
 
-        std::cout << "🔍 Allocating " << allocInfo.commandBufferCount << " command buffers...\n";
-
-        VkResult result = vkAllocateCommandBuffers(device, &allocInfo, commandBuffers.data());
-
-        if (result != VK_SUCCESS) {
-            std::cerr << "❌ ERROR: vkAllocateCommandBuffers failed! VkResult = " << result << "\n";
+        commandBuffers.resize(bufferCount);
+        if (vkAllocateCommandBuffers(device, &allocInfo, commandBuffers.data()) != VK_SUCCESS) {
             throw std::runtime_error("❌ ERROR: Failed to allocate command buffers!");
         }
-
-        std::cout << "✅ Command buffers allocated successfully! Count: " << commandBuffers.size() << "\n";
     }
+
 
 
 
@@ -792,7 +774,7 @@ private:
 
     void initVulkan() {
         std::cout << "🛠 Entering initVulkan..." << std::endl;
-        
+
         createInstance();
         setupDebugMessenger();
         createSurface();
@@ -824,7 +806,7 @@ private:
         }
 
         std::cout << "🟡 Calling loadTexture() before descriptor set creation..." << std::endl;
-        loadTexture(); // ✅ Now safe to load the texture
+        loadTexture();  // ✅ Now safe to load the texture
 
         std::cout << "🔍 Calling createTextureImageView()..." << std::endl;
         createTextureImageView();
@@ -836,7 +818,7 @@ private:
         createDescriptorSet();
 
         std::cout << "🟡 Calling createVertexBuffer()..." << std::endl;
-        createVertexBuffer();  // ✅ MAKE SURE THIS FUNCTION IS CALLED
+        createVertexBuffer();  // ✅ Ensures vertex buffer is created
 
         std::cout << "🔍 Calling createCommandBuffers()...\n";
         createFramebuffers();
@@ -846,11 +828,19 @@ private:
             throw std::runtime_error("❌ ERROR: commandPool was not created! Did createCommandPool() run?");
         }
 
-        createCommandBuffers();  // ✅ Ensure command buffers are created after vertex buffer is set up
+        std::cout << "🔍 Creating command buffers...\n";
+        uint32_t bufferCount = 3; // Adjust based on the number of frames in flight
+        createCommandBuffers(device, commandPool, commandBuffers, bufferCount);
+
+
 
         std::cout << "🔍 Creating synchronization objects...\n";
         createSyncObjects();
+
+        std::cout << "✅ Vulkan initialization complete!\n";
     }
+
+
 
 
     void createRenderPass() {
@@ -1489,18 +1479,7 @@ void HelloTriangleApplication::createImage(uint32_t width, uint32_t height, VkFo
 }
 
 
-void HelloTriangleApplication::transitionImageLayout(VkImage image, VkFormat format, VkImageLayout oldLayout, VkImageLayout newLayout) {
-    if (image == VK_NULL_HANDLE) {
-        throw std::runtime_error("❌ ERROR: Trying to transition a NULL image!");
-    }
-    if (format == VK_FORMAT_UNDEFINED) {
-        throw std::runtime_error("❌ ERROR: Cannot transition VK_FORMAT_UNDEFINED image!");
-    }
-
-    std::cout << "🔄 Transitioning Image Layout from " << oldLayout << " to " << newLayout << "\n";
-
-    VkCommandBuffer commandBuffer = this->beginSingleTimeCommands();
-
+void transitionImageLayout(VkCommandBuffer commandBuffer, VkImage image, VkFormat format, VkImageLayout oldLayout, VkImageLayout newLayout) {
     VkImageMemoryBarrier barrier{};
     barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
     barrier.oldLayout = oldLayout;
@@ -1522,14 +1501,25 @@ void HelloTriangleApplication::transitionImageLayout(VkImage image, VkFormat for
         barrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
         sourceStage = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
         destinationStage = VK_PIPELINE_STAGE_TRANSFER_BIT;
+    } else if (oldLayout == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL && newLayout == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL) {
+        barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+        barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+        sourceStage = VK_PIPELINE_STAGE_TRANSFER_BIT;
+        destinationStage = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
     } else {
-        throw std::runtime_error("❌ ERROR: Unsupported layout transition!");
+        throw std::invalid_argument("❌ ERROR: Unsupported layout transition!");
     }
 
-    vkCmdPipelineBarrier(commandBuffer, sourceStage, destinationStage, 0, 0, nullptr, 0, nullptr, 1, &barrier);
-
-    this->endSingleTimeCommands(commandBuffer);
+    vkCmdPipelineBarrier(
+        commandBuffer,
+        sourceStage, destinationStage,
+        0,
+        0, nullptr,
+        0, nullptr,
+        1, &barrier
+    );
 }
+
 
 void HelloTriangleApplication::copyBufferToImage(VkBuffer buffer, VkImage image,
                                                  uint32_t width, uint32_t height) {
@@ -1601,3 +1591,49 @@ bool checkFormatSupport(VkPhysicalDevice physicalDevice, VkFormat format) {
     }
     return true;
 }
+
+void recordAndSubmitCommandBuffer(VkCommandBuffer commandBuffer, VkQueue graphicsQueue) {
+    // End command buffer recording before submission
+    VkResult res = vkEndCommandBuffer(commandBuffer);
+    if (res != VK_SUCCESS) {
+        throw std::runtime_error("❌ ERROR: Failed to record command buffer!");
+    }
+
+    // Prepare the submit info
+    VkSubmitInfo submitInfo{};
+    submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+    submitInfo.commandBufferCount = 1;
+    submitInfo.pCommandBuffers = &commandBuffer;
+
+    // Submit the command buffer to the queue
+    if (vkQueueSubmit(graphicsQueue, 1, &submitInfo, VK_NULL_HANDLE) != VK_SUCCESS) {
+        throw std::runtime_error("❌ ERROR: Failed to submit draw command buffer!");
+    }
+
+    // Ensure the queue finishes execution
+    vkQueueWaitIdle(graphicsQueue);
+}
+
+void createVulkanInstance(VkInstance& instance) {
+    VkApplicationInfo appInfo{};
+    appInfo.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO;
+    appInfo.pApplicationName = "Little Vulkan Engine";
+    appInfo.applicationVersion = VK_MAKE_VERSION(1, 0, 0);
+    appInfo.pEngineName = "No Engine";
+    appInfo.engineVersion = VK_MAKE_VERSION(1, 0, 0);
+    appInfo.apiVersion = VK_API_VERSION_1_3;
+
+    VkInstanceCreateInfo createInfo{};
+    createInfo.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
+    createInfo.pApplicationInfo = &appInfo;
+
+    // Enable debug validation layers
+    const char* validationLayers[] = { "VK_LAYER_KHRONOS_validation" };
+    createInfo.enabledLayerCount = 1;
+    createInfo.ppEnabledLayerNames = validationLayers;
+
+    if (vkCreateInstance(&createInfo, nullptr, &instance) != VK_SUCCESS) {
+        throw std::runtime_error("❌ ERROR: Failed to create Vulkan instance!");
+    }
+}
+
