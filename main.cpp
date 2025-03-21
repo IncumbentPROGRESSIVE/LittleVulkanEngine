@@ -22,6 +22,7 @@
 #include "/Users/colinleary/Desktop/VulkanSDK/KTX-Software/include/ktx.h"
 #include "/Users/colinleary/Desktop/VulkanSDK/KTX-Software/include/ktxvulkan.h"
 
+
 struct Vertex {
     glm::vec2 pos;    // Position (x, y)
     glm::vec2 texCoord; // Texture Coordinates (u, v)
@@ -151,37 +152,24 @@ class HelloTriangleApplication {
         std::cout << "🔍 Texture Dimensions: " << texture->baseWidth << " x " << texture->baseHeight << "\n";
         std::cout << "🔍 Mip Levels: " << texture->numLevels << "\n";
 
-        // **Check BC7 format support before deciding transcoding format**
-        std::cout << "🟡 Checking BC7 Format Support Before Loading Texture...\n";
-        VkFormatProperties formatProperties;
-        vkGetPhysicalDeviceFormatProperties(physicalDevice, VK_FORMAT_BC7_UNORM_BLOCK, &formatProperties);
-
-        bool supportsBC7 = formatProperties.optimalTilingFeatures & VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT;
-        if (!supportsBC7) {
-            std::cerr << "❌ ERROR: GPU does NOT support BC7. Trying ASTC instead.\n";
-        } else {
-            std::cout << "✅ GPU supports BC7. Proceeding with BC7 format.\n";
-        }
-
-        // **Set transcoding format dynamically**
-        ktx_transcode_fmt_e targetFormat = supportsBC7 ? KTX_TTF_BC7_RGBA : KTX_TTF_ASTC_4x4_RGBA;
+        // **Force RGBA8 format to ensure Metal compatibility**
+        ktx_transcode_fmt_e targetFormat = KTX_TTF_RGBA32;
+        VkFormat textureFormat = VK_FORMAT_R8G8B8A8_UNORM; // ✅ Vulkan equivalent for RGBA8
 
         // **Handle VK_FORMAT_UNDEFINED case**
-        VkFormat textureFormat = ktxTexture_GetVkFormat(texture);
-        if (textureFormat == VK_FORMAT_UNDEFINED) {
+        if (ktxTexture_GetVkFormat(texture) == VK_FORMAT_UNDEFINED) {
             std::cerr << "❌ ERROR: KTX2 file has VK_FORMAT_UNDEFINED! Attempting to transcode...\n";
-            
+
             if (ktxTexture2_TranscodeBasis(reinterpret_cast<ktxTexture2*>(texture), targetFormat, 0) != KTX_SUCCESS) {
                 throw std::runtime_error("❌ ERROR: Transcoding failed!");
             }
 
-            // **Map KTX format to Vulkan format**
-            textureFormat = supportsBC7 ? VK_FORMAT_BC7_UNORM_BLOCK : VK_FORMAT_ASTC_4x4_UNORM_BLOCK;
-            std::cout << "✅ Transcoded Format: " << textureFormat << "\n";
+            std::cout << "✅ Transcoded Format: VK_FORMAT_R8G8B8A8_UNORM (RGBA8)\n";
         }
 
+        // **Create Vulkan Image with RGBA8 format**
         createImage(texture->baseWidth, texture->baseHeight,
-                    textureFormat,  // ✅ Using retrieved or transcoded format
+                    textureFormat, // ✅ Using RGBA8 format
                     VK_IMAGE_TILING_OPTIMAL,
                     VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
                     VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
@@ -344,15 +332,24 @@ class HelloTriangleApplication {
     void createSyncObjects() {
         VkSemaphoreCreateInfo semaphoreInfo{};
         semaphoreInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
+
         if (vkCreateSemaphore(device, &semaphoreInfo, nullptr, &imageAvailableSemaphore) != VK_SUCCESS ||
             vkCreateSemaphore(device, &semaphoreInfo, nullptr, &renderFinishedSemaphore) != VK_SUCCESS) {
-            throw std::runtime_error("ERROR: Failed to create semaphores!");
+            throw std::runtime_error("❌ ERROR: Failed to create semaphores!");
         }
+
+        std::cout << "✅ Semaphores created successfully!" << std::endl;
     }
+
     
     void recordCommandBuffer(VkCommandBuffer commandBuffer, uint32_t imageIndex) {
         VkCommandBufferBeginInfo beginInfo{};
         beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+
+        // ✅ Ensure the command buffer is valid before beginning
+        if (commandBuffer == VK_NULL_HANDLE) {
+            throw std::runtime_error("❌ ERROR: Command buffer is NULL before recording!");
+        }
 
         if (vkBeginCommandBuffer(commandBuffer, &beginInfo) != VK_SUCCESS) {
             throw std::runtime_error("❌ ERROR: Failed to begin recording command buffer!");
@@ -372,7 +369,7 @@ class HelloTriangleApplication {
         vkCmdBeginRenderPass(commandBuffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
         vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, graphicsPipeline);
 
-        // ✅ Ensure vertexBuffer is valid before binding
+        // ✅ Ensure vertex buffer exists before binding
         if (vertexBuffer == VK_NULL_HANDLE) {
             throw std::runtime_error("❌ ERROR: vertexBuffer is NULL before binding!");
         }
@@ -381,15 +378,15 @@ class HelloTriangleApplication {
 
         VkBuffer vertexBuffers[] = {vertexBuffer};
         VkDeviceSize offsets[] = {0};
-
         vkCmdBindVertexBuffers(commandBuffer, 0, 1, vertexBuffers, offsets);
 
-        // ✅ Ensure descriptorSet is valid before binding
+        // ✅ Ensure descriptor set exists before binding
         if (descriptorSet == VK_NULL_HANDLE) {
             throw std::runtime_error("❌ ERROR: descriptorSet is NULL before binding!");
         }
 
         vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0, 1, &descriptorSet, 0, nullptr);
+        
         std::cout << "🟢 Calling vkCmdDraw()" << std::endl;
         vkCmdDraw(commandBuffer, 6, 1, 0, 0);
 
@@ -409,6 +406,11 @@ class HelloTriangleApplication {
             throw std::runtime_error("❌ ERROR: Failed to acquire swap chain image!");
         }
 
+        // ✅ Ensure command buffer is valid before submitting
+        if (commandBuffers[imageIndex] == VK_NULL_HANDLE) {
+            throw std::runtime_error("❌ ERROR: commandBuffers[imageIndex] is NULL before vkQueueSubmit!");
+        }
+
         // 🛠 **Record the command buffer before submitting**
         recordCommandBuffer(commandBuffers[imageIndex], imageIndex);
 
@@ -425,9 +427,20 @@ class HelloTriangleApplication {
         submitInfo.signalSemaphoreCount = 1;
         submitInfo.pSignalSemaphores = signalSemaphores;
 
+        // ✅ Ensure graphicsQueue is valid
         if (graphicsQueue == VK_NULL_HANDLE) {
             throw std::runtime_error("❌ ERROR: graphicsQueue is NULL before submission!");
         }
+
+        // ✅ Ensure semaphores are valid
+        if (imageAvailableSemaphore == VK_NULL_HANDLE || renderFinishedSemaphore == VK_NULL_HANDLE) {
+            throw std::runtime_error("❌ ERROR: Semaphore is NULL before vkQueueSubmit!");
+        }
+
+        std::cout << "🟢 Submitting Command Buffer: " << commandBuffers[imageIndex] << std::endl;
+        std::cout << "🟢 Using graphicsQueue: " << graphicsQueue << std::endl;
+        std::cout << "🟢 Image Available Semaphore: " << imageAvailableSemaphore << std::endl;
+        std::cout << "🟢 Render Finished Semaphore: " << renderFinishedSemaphore << std::endl;
 
         if (vkQueueSubmit(graphicsQueue, 1, &submitInfo, VK_NULL_HANDLE) != VK_SUCCESS) {
             throw std::runtime_error("❌ ERROR: Failed to submit draw command buffer!");
@@ -663,26 +676,30 @@ private:
 
 
     void createCommandBuffers(VkDevice device, VkCommandPool commandPool, std::vector<VkCommandBuffer>& commandBuffers, uint32_t bufferCount) {
-        // Reset the command pool to allow command buffer reallocation
-        if (vkResetCommandPool(device, commandPool, 0) != VK_SUCCESS) {
-            throw std::runtime_error("❌ ERROR: Failed to reset command pool!");
+        if (commandPool == VK_NULL_HANDLE) {
+            throw std::runtime_error("❌ ERROR: Command pool is NULL before allocating command buffers!");
         }
 
-        // Allocate command buffers
+        if (!commandBuffers.empty()) {
+            vkFreeCommandBuffers(device, commandPool, static_cast<uint32_t>(commandBuffers.size()), commandBuffers.data());
+            commandBuffers.clear();
+        }
+
+        commandBuffers.resize(bufferCount);
+
         VkCommandBufferAllocateInfo allocInfo{};
         allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
         allocInfo.commandPool = commandPool;
         allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
         allocInfo.commandBufferCount = bufferCount;
 
-        commandBuffers.resize(bufferCount);
-        if (vkAllocateCommandBuffers(device, &allocInfo, commandBuffers.data()) != VK_SUCCESS) {
+        VkResult result = vkAllocateCommandBuffers(device, &allocInfo, commandBuffers.data());
+        if (result != VK_SUCCESS) {
             throw std::runtime_error("❌ ERROR: Failed to allocate command buffers!");
         }
+
+        std::cout << "✅ Command Buffers Allocated Successfully!" << std::endl;
     }
-
-
-
 
     VkRenderPass renderPass;
     GLFWwindow* window;
