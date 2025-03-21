@@ -135,7 +135,7 @@ class HelloTriangleApplication {
         throw std::runtime_error("❌ ERROR: Failed to find suitable memory type!");
     }
 
-
+    
     const std::string TEXTURE_PATH = "/Users/colinleary/Downloads/RoomONE.ktx2";
     void loadTexture() {
         std::cout << "🛠 Entering loadTexture()...\n";
@@ -176,6 +176,12 @@ class HelloTriangleApplication {
                     textureImage, textureImageMemory);
 
         vkBindImageMemory(device, textureImage, textureImageMemory, 0);
+        
+        // 🔥 Debugging Step: Print final Vulkan image format
+           std::cout << "🔍 Final Vulkan Image Format: " << textureFormat << std::endl;
+
+           // Create Vulkan image with the processed texture
+           createTextureImageView();
 
         ktxTexture_Destroy(texture);
     }
